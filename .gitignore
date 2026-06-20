@@ -1,0 +1,53 @@
+# Local agent/config directories
+.pi/
+.agent/
+
+# Proposals
+skills/github-supply-chain-hardening-analysis/proposals/
+
+# Python bytecode and cache directories
+__pycache__/
+*.py[cod]
+*$py.class
+
+# CPython compiled extension artifacts
+*.so
+*.pyd
+*.pyo
+*.cpython-*.so
+*.cpython-*.pyd
+
+# Python packaging/build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test/type/lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
