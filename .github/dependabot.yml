@@ -4,6 +4,9 @@ updates:
     directory: /skills/github-supply-chain-hardening-analysis
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
     open-pull-requests-limit: 10
     groups:
       low-risk:
@@ -12,11 +15,19 @@ updates:
           - patch
     cooldown:
       default-days: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    reviewers:
+      - RichardSlater
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
     open-pull-requests-limit: 10
     groups:
       low-risk:
@@ -25,3 +36,8 @@ updates:
           - patch
     cooldown:
       default-days: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    reviewers:
+      - RichardSlater
