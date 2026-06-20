@@ -1,0 +1,48 @@
+name: Validate Skills
+
+on:
+  pull_request:
+    paths:
+      - "skills/**"
+      - ".github/workflows/validate-skills.yml"
+      - ".github/dependabot.yml"
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - ".github/workflows/validate-skills.yml"
+      - ".github/dependabot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Validate SKILL.md files
+        run: |
+          find skills -name SKILL.md -print0 | while IFS= read -r -d '' skill; do
+            npx --yes skills-ref@0.1.5 validate "$(dirname "$skill")"
+          done
+
+      - name: Check skills are discoverable
+        run: npx --yes skills@1.5.12 add . --list -y
+
+      - name: Validate Python scripts compile
+        run: |
+          find skills -type d -name scripts -print0 | while IFS= read -r -d '' dir; do
+            python -m compileall -q "$dir"
+          done
+
+      - name: Verify GitHub Actions are covered by Dependabot
+        run: |
+          grep -q "package-ecosystem: github-actions" .github/dependabot.yml
