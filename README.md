@@ -27,66 +27,40 @@ skills/
 
 ## Quick start
 
-### 1. Clone the repository
+### 1. Install the skills
 
 ```bash
-git clone git@github.com:RichardSlater/skills.git
-cd skills
+npx skills add https://github.com/RichardSlater/skills
 ```
 
-### 2. Prepare Python dependencies for analysis
-
-The analysis skill has colocated Python dependencies:
+The installer presents the available skills to add. To install a specific skill directly, pass the skill name with the skills CLI option, for example:
 
 ```bash
-cd skills/github-supply-chain-hardening-analysis
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
+npx skills add https://github.com/RichardSlater/skills --skill github-supply-chain-hardening-analysis
 ```
 
-### 3. Authenticate with GitHub
+### 2. Authenticate with GitHub
 
-Use the GitHub CLI or an existing `GITHUB_TOKEN`. Do **not** paste tokens into chat, issues, pull requests, or logs.
+Ensure the GitHub CLI is installed and logged in:
 
 ```bash
 gh auth login
-# or set GITHUB_TOKEN in your shell environment
+gh auth status
 ```
 
-The analysis scripts are designed to discover tokens locally and print only non-secret metadata.
+Do **not** paste GitHub tokens into chat, issues, pull requests, or logs. The analysis skill discovers local authentication metadata without printing token values.
 
-### 4. Discover available token metadata
+### 3. Run the analysis skill in your agent
 
-```bash
-python scripts/discover_tokens.py
+Start your coding agent and invoke the skill command:
+
+```text
+/github-supply-chain-hardening-analysis
 ```
 
-### 5. Run a read-only discovery check
+The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals.
 
-For an organization:
-
-```bash
-python scripts/gh_orchestrator.py --org <github-org> --token-source auto --dry-run
-```
-
-For a personal account's owned repositories:
-
-```bash
-python scripts/gh_orchestrator.py --user <github-user> --token-source auto --dry-run
-```
-
-### 6. Generate remediation proposals
-
-```bash
-python scripts/gh_orchestrator.py \
-  --org <github-org> \
-  --token-source auto \
-  --output-dir ./proposals \
-  --max-concurrency 5
-```
-
-Generated proposals are written under the selected output directory. The default `./proposals` directory is ignored by Git because proposals may contain sensitive repository analysis context.
+Generated proposals are written under the analysis skill's configured output directory. Treat proposals as potentially sensitive because they may include repository security posture and remediation details.
 
 ## Security model
 
