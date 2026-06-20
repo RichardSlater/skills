@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "Feature: "
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Keep examples free of secrets and private repository data.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - github-supply-chain-hardening-analysis
+        - github-supply-chain-hardening-remediation
+        - New skill
+        - Documentation
+        - Repository automation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need or gap should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and safety considerations
+      description: Note any token handling, repository mutation, GitHub API, workflow, or dependency implications.
+    validations:
+      required: false

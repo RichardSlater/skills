@@ -1,0 +1,40 @@
+name: Skill request
+description: Propose a new reusable agent skill or a major skill expansion
+title: "Skill: "
+labels: [skill, enhancement, needs-triage]
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: Skill purpose
+      description: What should the skill help users accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: triggers
+    attributes:
+      label: When should it be used?
+      description: List example user requests that should trigger the skill.
+    validations:
+      required: true
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Required inputs
+      description: What information does the agent need from the user or local environment?
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety constraints
+      description: Document what the skill must never do, especially around credentials, repository mutation, and private data.
+    validations:
+      required: true
+  - type: textarea
+    id: outputs
+    attributes:
+      label: Expected outputs
+      description: What files, reports, branches, pull requests, or summaries should be produced?
+    validations:
+      required: false

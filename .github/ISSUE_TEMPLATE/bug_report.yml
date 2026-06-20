@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible problem in a skill, script, or repository documentation
+title: "Bug: "
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include tokens, secrets, private repository contents, or confidential organization data.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - github-supply-chain-hardening-analysis
+        - github-supply-chain-hardening-remediation
+        - Documentation
+        - Repository templates / metadata
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include commands with secrets removed.
+      placeholder: |
+        1. Run `...`
+        2. See `...`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant non-sensitive versions and platform details.
+      placeholder: |
+        - OS:
+        - Python:
+        - GitHub CLI:
+        - Target type: organization / user / not applicable
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I removed tokens, credentials, private repository contents, and confidential organization data.
+          required: true
+        - label: This is not a vulnerability report. I will use SECURITY.md for security issues.
+          required: true

@@ -1,0 +1,9 @@
+# Repository-wide default owners.
+# Update this file with the maintaining user or team that should review changes.
+* @RichardSlater
+
+# Security-sensitive automation and dependency paths.
+.github/ @RichardSlater
+skills/*/scripts/ @RichardSlater
+skills/*/requirements.txt @RichardSlater
+SECURITY.md @RichardSlater
