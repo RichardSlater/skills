@@ -4,13 +4,13 @@ on:
   pull_request:
     paths:
       - "skills/**"
-      - ".github/workflows/validate-skills.yml"
+      - ".github/workflows/**"
       - ".github/dependabot.yml"
   push:
     branches: [main]
     paths:
       - "skills/**"
-      - ".github/workflows/validate-skills.yml"
+      - ".github/workflows/**"
       - ".github/dependabot.yml"
 
 permissions:
