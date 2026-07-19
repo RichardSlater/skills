@@ -74,7 +74,35 @@ This skill may apply file-based changes such as:
 - New dependency review workflow.
 - New OpenSSF Scorecard workflow.
 
-### Scorecard and SARIF workflow permissions
+### Mandatory GitHub Actions hardening protocol
+
+When hardening a repository's GitHub supply chain, preserve existing workflows and follow this protocol before modifying any GitHub Actions workflow:
+
+1. Read the documentation for every affected action, including workflow restrictions and required permission scopes.
+2. Inspect recent successful runs to establish a working baseline.
+3. Preserve least privilege:
+   - Workflow-level permissions must remain read-only (`read-all` or explicit read scopes).
+   - Grant write permissions only at the specific job level that requires them.
+4. For `ossf/scorecard-action` with `publish_results: true`:
+   - Do not add any workflow-level write permission.
+   - Keep `security-events: write` and `id-token: write` scoped to the Scorecard job.
+   - Respect all documented Scorecard workflow-verification restrictions.
+5. Treat YAML parsing and linting as necessary but insufficient. Validate action-specific semantic constraints too.
+6. Run all repository quality gates, including `pre-commit run --all-files`.
+7. Do not merge or declare success until every required GitHub check has completed successfully.
+8. If an affected action cannot be executed locally, open a PR and wait for its GitHub Actions check. Investigate and fix any failure before merging.
+9. Compare the final workflow permissions against the last successful version and explain every permission change.
+10. Never claim an expected security improvement without evidence from a successful post-change run.
+
+Every final report must include:
+
+- Changed workflows and permissions.
+- Action documentation consulted.
+- Local validation performed.
+- GitHub check URLs and conclusions.
+- Any validation that could not be performed.
+
+## Scorecard and SARIF workflow permissions
 
 Use `scripts/workflow_permissions.py` whenever creating or changing a Scorecard workflow, or a workflow that uses `github/codeql-action/upload-sarif`. It preserves action lines (including immutable full-SHA pins and version comments), merges mappings without changing unrelated jobs, and refuses ambiguous scalar permission configurations instead of weakening them.
 
