@@ -73,6 +73,34 @@ This skill may apply file-based changes such as:
 - `.github/workflows/*.yml` permission hardening.
 - New dependency review workflow.
 - New OpenSSF Scorecard workflow.
+
+### Scorecard and SARIF workflow permissions
+
+Use `scripts/workflow_permissions.py` whenever creating or changing a Scorecard workflow, or a workflow that uses `github/codeql-action/upload-sarif`. It preserves action lines (including immutable full-SHA pins and version comments), merges mappings without changing unrelated jobs, and refuses ambiguous scalar permission configurations instead of weakening them.
+
+Scorecard workflows use a workflow-level read-only baseline and explicit job permissions. A Scorecard analysis job must retain `contents: read`; add `id-token: write` when its Scorecard action has `publish_results: true`, and add `security-events: write` when it uploads SARIF. Job-level `permissions` replace the workflow baseline, so `contents: read` must be present in the job mapping too:
+
+```yaml
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    permissions:
+      contents: read
+      security-events: write # when upload-sarif is used
+      id-token: write # when publish_results: true
+```
+
+Before committing, remediate and then semantically validate each affected workflow:
+
+```bash
+python /path/to/github-supply-chain-hardening-remediation/scripts/workflow_permissions.py .github/workflows/scorecard.yml
+python /path/to/github-supply-chain-hardening-remediation/scripts/workflow_permissions.py --check .github/workflows/scorecard.yml
+```
+
+Do not replace an existing permission mapping. Merge missing keys; preserve all required existing scopes and every unrelated job's mapping. In particular, replacing `permissions: read-all` must create the complete baseline/job mappings above, not just `contents: read`. Apply the same `security-events: write` rule to confirmed CodeQL and other SARIF-uploading jobs.
+
 - New or updated OSV-Scanner workflow.
 - `CODEOWNERS`.
 - `SECURITY.md` or security documentation.
@@ -346,11 +374,29 @@ The PR only changes repository files. A repository, organization or enterprise a
 No repository settings were changed by this PR automation.
 ```
 
+## Tool preflight before delegation
+
+Before spawning, delegating to, or running any background subagent, the parent agent must build a complete manifest of tools required by every planned child task and complete a **blocking** preflight. Include tools needed later in the run, not only tools needed for cloning. For this skill, check `python`, `pip`, `git`, `gh`, the packages in `requirements.txt`, and conditionally `actionlint` for workflow edits, a Scorecard executor (`scorecard`, `docker`, `podman`, or `nerdctl`) when Scorecard evidence is required, and the repository's declared test/build tools. Include every extra command required by a proposal or child task.
+
+Attempt to install a missing tool through its documented installer or the platform's approved package manager, then re-run its version/health check. For example, install Python dependencies before dispatch and install actionlint before workflow-validation work:
+
+```bash
+python -m pip install -r /path/to/github-supply-chain-hardening-remediation/requirements.txt
+if ! command -v actionlint >/dev/null 2>&1; then
+  go install github.com/rhysd/actionlint/cmd/actionlint@latest
+fi
+actionlint -version
+git --version
+gh --version
+```
+
+Never spawn/delegate while a manifest item is unchecked. If installation, authentication prerequisite, health/version check, or re-check fails, stop before spawning any subagent and report the missing tool and installer error. Do not silently omit validation, downgrade a required Scorecard run, or leave a child agent to discover/install a prerequisite. Do not expose credentials while installing tools.
+
 ## Execution flow
 
 The agent must:
 
-1. Read the proposal JSON.
+1. Complete the blocking tool preflight above before spawning/delegating or reading the proposal JSON.
 2. Separate file-based changes from settings/manual changes.
 3. Ask for explicit confirmation before any push or PR if the user has not already provided it.
 4. Clone the repository into a temporary workspace using `gh repo clone`.

@@ -94,24 +94,41 @@ If dependencies are missing, install from the colocated requirements file in an 
 python -m pip install -r requirements.txt
 ```
 
+## Tool preflight before delegation
+
+Before spawning, delegating to, or running any background subagent/orchestrator, the parent agent must build a tool manifest for the entire requested run and complete a **blocking** preflight. This applies to every subagent, including ones that will run only after repository discovery; do not defer discovery of a missing tool until a child is already running.
+
+For this analysis skill the manifest includes: `python`, `pip`, `git`, `gh`, the Python packages in `requirements.txt`, and a Scorecard executor (`scorecard`, `docker`, `podman`, or `nerdctl`). Add any command required by requested validation or a subagent's declared task. Check executable availability and versions, install Python dependencies in an isolated environment where possible, then re-check:
+
+```bash
+python -m pip install -r requirements.txt
+python --version
+git --version
+gh --version
+python scripts/scorecard_runner.py --help
+```
+
+If a required executable is absent, the parent must attempt installation using the platform's approved package manager (or the tool's documented installer), retry the check, and record the result. It must never pass an unchecked requirement to a subagent. If installation, version verification, authentication prerequisite, or the final re-check fails, stop before spawning/delegating and report the exact missing tool and installer error. Do not silently downgrade the run, skip Scorecard, or ask a child agent to work around the missing tool. Installation must not print or persist credentials.
+
 ## Execution flow
 
 The agent must:
 
-1. Do not enumerate repositories directly in the LLM context window.
-2. Do not loop over repository files natively as an agent.
-3. Change into the installed skill directory, then run token discovery locally:
+1. Complete the blocking tool preflight above before spawning/delegating or running `gh_orchestrator.py`.
+2. Do not enumerate repositories directly in the LLM context window.
+3. Do not loop over repository files natively as an agent.
+4. Change into the installed skill directory, then run token discovery locally:
 
    ```bash
    cd /path/to/github-supply-chain-hardening-analysis
    python scripts/discover_tokens.py
    ```
 
-4. Review the printed metadata with the user if token choice or target visibility is ambiguous. Use only token source labels such as `GITHUB_TOKEN` or `gh auth token`; never request token values.
-5. Invoke the background Python orchestrator using the shell tool.
-6. Prefer `--token-source auto`, `--token-source env`, or `--token-source gh` over passing a token.
-7. Read the script’s final JSON summary from stdout.
-8. Report the summary to the user.
+5. Review the printed metadata with the user if token choice or target visibility is ambiguous. Use only token source labels such as `GITHUB_TOKEN` or `gh auth token`; never request token values.
+6. Invoke the background Python orchestrator using the shell tool.
+7. Prefer `--token-source auto`, `--token-source env`, or `--token-source gh` over passing a token.
+8. Read the script’s final JSON summary from stdout.
+9. Report the summary to the user.
 
 Organization command pattern:
 
