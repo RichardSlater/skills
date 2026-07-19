@@ -374,7 +374,11 @@ The agent must:
 
     ```bash
     git diff --check
-    # YAML validation if workflows changed
+    # YAML validation if workflows changed. Install actionlint when it is not on PATH.
+    if ! command -v actionlint >/dev/null 2>&1; then
+      go install github.com/rhysd/actionlint/cmd/actionlint@latest
+    fi
+    actionlint
     go test ./...        # for Go repositories
     npm test             # for Node repositories, when available
     cargo test           # for Rust repositories, when available
