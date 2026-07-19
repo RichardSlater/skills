@@ -21,8 +21,11 @@ skills/
     scripts/
       discover_tokens.py
       gh_orchestrator.py
+      scorecard_runner.py
   github-supply-chain-hardening-remediation/
     SKILL.md
+    scripts/
+      scorecard_runner.py
 ```
 
 ## Quick start
@@ -58,7 +61,7 @@ Start your coding agent and invoke the skill command:
 /github-supply-chain-hardening-analysis
 ```
 
-The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals.
+The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals. OpenSSF Scorecard runs locally when installed; otherwise the skill can pull and run `ghcr.io/ossf/scorecard:latest` with Docker, Podman, or nerdctl. It can safely source authentication from `gh auth token` in process memory and forward it as `GITHUB_AUTH_TOKEN` without putting the token in command arguments.
 
 Generated proposals are written under the analysis skill's configured output directory. Treat proposals as potentially sensitive because they may include repository security posture and remediation details.
 

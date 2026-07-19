@@ -1,10 +1,10 @@
 ## Summary
 
-- 
+-
 
 ## Why
 
-- 
+-
 
 ## Type of change
 

@@ -54,7 +54,9 @@ Use local authentication from:
 
 - `gh auth token` through the GitHub CLI.
 - Existing `gh` CLI authentication for clone, push, and PR creation.
-- `GITHUB_TOKEN` only if already present in the local environment and needed by a command.
+- `GITHUB_AUTH_TOKEN` or `GITHUB_TOKEN` only if already present in the local environment and needed by a command.
+
+For OpenSSF Scorecard, use the colocated `scripts/scorecard_runner.py`. Resolve its absolute path before changing into a temporary repository clone; do not assume the target repository contains this script. It prefers a local `scorecard`; when that executable is absent it discovers a working `docker`, `podman`, or `nerdctl`, pulls `ghcr.io/ossf/scorecard:latest`, and runs it. Authentication is selected from `GITHUB_AUTH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`, and mapped to Scorecard's `GITHUB_AUTH_TOKEN` environment variable. For containers the value is forwarded with `-e GITHUB_AUTH_TOKEN`, not placed in argv or shell history, and the container is removed afterward. Container runtime/daemon administrators can inspect a running container's environment and are therefore privileged. Use `--container-runtime <name-or-path>` to prefer another Docker-compatible runtime.
 
 Security requirements:
 
@@ -381,10 +383,12 @@ The agent must:
     If the analysis proposal included OpenSSF Scorecard results, re-run Scorecard after applying file-based changes to confirm score improvement:
 
     ```bash
-    scorecard --repo github.com/owner/repository --format json --show-details > updated-scorecard.json
+    python /path/to/github-supply-chain-hardening-remediation/scripts/scorecard_runner.py \
+      --repo owner/repository \
+      --output /path/to/temporary-workspace/updated-scorecard.json
     ```
 
-    Capture the updated overall score and any checks that moved from failing/low to passing. File-based changes can improve checks such as Token-Permissions, Pinned-Dependencies, Dangerous-Workflow, SAST, Security-Policy, Dependency-Update-Tool, CI-Tests, and Binary-Artifacts. Branch-Protection, Code-Review, Signed-Releases, and Vulnerabilities checks cannot be fully fixed by this skill and remain manual follow-up evidence.
+    Keep this generated JSON outside the repository clone so it cannot be committed. Capture the updated overall score and any checks that moved from failing/low to passing. File-based changes can improve checks such as Token-Permissions, Pinned-Dependencies, Dangerous-Workflow, SAST, Security-Policy, Dependency-Update-Tool, CI-Tests, and Binary-Artifacts. Branch-Protection, Code-Review, Signed-Releases, and Vulnerabilities checks cannot be fully fixed by this skill and remain manual follow-up evidence.
 
 14. Run leak checks before commit/push:
 
@@ -543,6 +547,8 @@ Stop work on the current repository and report clearly if:
 - The remediation branch already exists and the user has not approved reuse.
 - A proposed change is contradicted by the current repository state in a way that cannot be safely skipped.
 - Validation/tests fail.
+- Scorecard is unavailable because neither a local executable nor a working Docker-compatible runtime exists; report this separately if Scorecard evidence was expected.
+- Scorecard image pull or execution fails; do not claim score improvement without valid JSON output.
 - Commit signing is available but fails.
 - Leak checks detect token-like material.
 - Push fails.

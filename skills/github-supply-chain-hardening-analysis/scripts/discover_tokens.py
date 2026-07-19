@@ -17,7 +17,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request

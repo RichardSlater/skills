@@ -24,13 +24,15 @@ import tempfile
 import time
 from typing import Any, Literal
 
+from scorecard_runner import run_scorecard
+
 try:
     from pydantic import BaseModel, ValidationError
     from github import Auth, Github
     from github.GithubException import BadCredentialsException, GithubException, RateLimitExceededException, UnknownObjectException
 except Exception as exc:  # pragma: no cover - import-time operator guidance
     print(
-        "ERROR: missing dependency. Install with: pip install -r requirements.txt", 
+        "ERROR: missing dependency. Install with: pip install -r requirements.txt",
         file=sys.stderr,
     )
     raise SystemExit(2) from exc
@@ -126,6 +128,7 @@ class OpenSpecProposal(BaseModel):
     risk_drivers: list[str]
     control_areas: list[str]
     manual_review_required: bool
+    scorecard_evidence: dict[str, Any]
     changes: list[ProposalChange]
 
 
@@ -170,6 +173,8 @@ class RepoProcessResult:
     proposal_path: str | None = None
     error: str | None = None
     duration_seconds: float = 0.0
+    scorecard_status: str | None = None
+    scorecard_executor: str | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -187,6 +192,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Discover only; skip cloning and proposal writing")
     parser.add_argument("--max-repositories", type=int, help="Limit active repositories processed after discovery; useful for confidence tests")
     parser.add_argument("--max-file-bytes", type=int, default=1_048_576, help="Maximum file size to read")
+    parser.add_argument("--scorecard-timeout-seconds", type=int, default=300, help="Scorecard execution/pull timeout")
+    parser.add_argument("--container-runtime", help="Preferred Docker-compatible runtime when local Scorecard is unavailable")
     return parser.parse_args(argv)
 
 
@@ -623,7 +630,41 @@ def _risk_rank(risk: str) -> int:
     return {"low": 1, "medium": 2, "high": 3, "critical": 4}.get(risk, 1)
 
 
-def build_proposal(repo: RepoMetadata, analysis: AnalysisResult) -> OpenSpecProposal:
+def summarize_scorecard(execution: dict[str, Any]) -> dict[str, Any]:
+    """Add a bounded check summary to Scorecard execution metadata."""
+    evidence = dict(execution)
+    output_path = execution.get("output_path")
+    if execution.get("status") != "success" or not output_path:
+        evidence["overall_score"] = None
+        evidence["checks"] = []
+        return evidence
+    try:
+        payload = json.loads(Path(output_path).read_text(encoding="utf-8"))
+        checks = []
+        for check in payload.get("checks", []):
+            score = check.get("score")
+            # This is a prioritization band derived from the numeric check score,
+            # not a risk label emitted by Scorecard itself.
+            risk = "unknown"
+            if isinstance(score, (int, float)):
+                risk = "critical" if score <= 2 else "high" if score <= 5 else "medium" if score <= 7 else "low"
+            checks.append({
+                "name": check.get("name"),
+                "score": score,
+                "derived_risk_rating": risk,
+                "reason": check.get("reason"),
+            })
+        evidence["overall_score"] = payload.get("score")
+        evidence["checks"] = sorted(checks, key=lambda item: (item["score"] is None, item["score"] if item["score"] is not None else 99))
+    except (OSError, json.JSONDecodeError, AttributeError) as exc:
+        evidence["status"] = "failed"
+        evidence["error"] = f"could not summarize Scorecard JSON: {exc}"
+        evidence["overall_score"] = None
+        evidence["checks"] = []
+    return evidence
+
+
+def build_proposal(repo: RepoMetadata, analysis: AnalysisResult, scorecard_evidence: dict[str, Any]) -> OpenSpecProposal:
     """Build and validate an OpenSpec-style proposal from findings."""
     findings = analysis.findings
     if not findings:
@@ -653,6 +694,7 @@ def build_proposal(repo: RepoMetadata, analysis: AnalysisResult) -> OpenSpecProp
         risk_drivers=risk_drivers,
         control_areas=control_areas,
         manual_review_required=True,
+        scorecard_evidence=scorecard_evidence,
         changes=changes,
     )
 
@@ -682,16 +724,48 @@ def write_proposal(proposal: OpenSpecProposal, output_dir: Path) -> Path:
     return path
 
 
-async def _process_repository_impl(repo: RepoMetadata, token: str, output_dir: Path, clone_depth: int, max_file_bytes: int) -> RepoProcessResult:
+async def _process_repository_impl(
+    repo: RepoMetadata,
+    token: str,
+    output_dir: Path,
+    clone_depth: int,
+    max_file_bytes: int,
+    scorecard_timeout_seconds: int,
+    container_runtime: str | None,
+) -> RepoProcessResult:
     started = time.monotonic()
     temp_dir = Path(tempfile.mkdtemp(prefix="gh-org-supply-chain-"))
     clone_dir = temp_dir / "repo"
     try:
         await asyncio.to_thread(clone_repository, repo, token, clone_dir, clone_depth)
         analysis = await asyncio.to_thread(analyze_repository, clone_dir, max_file_bytes)
-        proposal = build_proposal(repo, analysis)
+        scorecard_path = output_dir / "scorecards" / f"{_safe_repo_name(repo.full_name)}.json"
+        scorecard_execution = await asyncio.to_thread(
+            run_scorecard,
+            repo.full_name,
+            scorecard_path,
+            token,
+            scorecard_timeout_seconds,
+            container_runtime,
+        )
+        scorecard_evidence = summarize_scorecard(scorecard_execution)
+        if scorecard_evidence["status"] != "success":
+            _add(analysis, Finding(
+                "dependencies", "medium", "OPENSSF_SCORECARD", "review", "OpenSSF Scorecard evidence unavailable",
+                scorecard_evidence.get("error") or "Scorecard execution did not produce JSON evidence.",
+                "Install Scorecard or start Docker, Podman, or nerdctl, then rerun the analysis.",
+                "Scorecard is a primary evidence source; this proposal contains heuristic findings only when its execution fails.",
+            ))
+        proposal = build_proposal(repo, analysis, scorecard_evidence)
         proposal_path = await asyncio.to_thread(write_proposal, proposal, output_dir)
-        return RepoProcessResult(repo.full_name, "success", str(proposal_path), duration_seconds=time.monotonic() - started)
+        return RepoProcessResult(
+            repo.full_name,
+            "success",
+            str(proposal_path),
+            duration_seconds=time.monotonic() - started,
+            scorecard_status=scorecard_evidence["status"],
+            scorecard_executor=scorecard_evidence.get("executor"),
+        )
     finally:
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -705,6 +779,8 @@ async def process_repository(
     repo_timeout_seconds: int,
     clone_depth: int,
     max_file_bytes: int,
+    scorecard_timeout_seconds: int,
+    container_runtime: str | None,
     dry_run: bool,
 ) -> RepoProcessResult:
     """Process one repository under semaphore and per-repository timeout."""
@@ -716,7 +792,10 @@ async def process_repository(
             return RepoProcessResult(repo.full_name, "skipped", error="dry-run", duration_seconds=0.0)
         try:
             result = await asyncio.wait_for(
-                _process_repository_impl(repo, token, output_dir, clone_depth, max_file_bytes),
+                _process_repository_impl(
+                    repo, token, output_dir, clone_depth, max_file_bytes,
+                    scorecard_timeout_seconds, container_runtime,
+                ),
                 timeout=repo_timeout_seconds,
             )
             print(f"Worker success: {repo.full_name}", flush=True)
@@ -740,6 +819,8 @@ def _result_to_dict(result: RepoProcessResult) -> dict[str, Any]:
         "proposal_path": result.proposal_path,
         "error": result.error,
         "duration_seconds": round(result.duration_seconds, 3),
+        "scorecard_status": result.scorecard_status,
+        "scorecard_executor": result.scorecard_executor,
     }
 
 
@@ -752,6 +833,8 @@ async def main_async(args: argparse.Namespace) -> int:
         raise RuntimeError("--repo-timeout-seconds must be at least 1")
     if args.clone_depth < 1:
         raise RuntimeError("--clone-depth must be at least 1")
+    if args.scorecard_timeout_seconds < 1:
+        raise RuntimeError("--scorecard-timeout-seconds must be at least 1")
     if args.max_repositories is not None and args.max_repositories < 1:
         raise RuntimeError("--max-repositories must be at least 1 when provided")
     output_dir = Path(args.output_dir).expanduser().resolve()
@@ -784,6 +867,8 @@ async def main_async(args: argparse.Namespace) -> int:
             repo_timeout_seconds=args.repo_timeout_seconds,
             clone_depth=args.clone_depth,
             max_file_bytes=args.max_file_bytes,
+            scorecard_timeout_seconds=args.scorecard_timeout_seconds,
+            container_runtime=args.container_runtime,
             dry_run=args.dry_run,
         ))
         for repo in active_repos
@@ -807,6 +892,9 @@ async def main_async(args: argparse.Namespace) -> int:
         "repositories_failed": counts["failed"],
         "repositories_timed_out": counts["timeout"],
         "repositories_skipped": counts["skipped"],
+        "scorecard_succeeded": sum(1 for result in results if result.scorecard_status == "success"),
+        "scorecard_failed": sum(1 for result in results if result.scorecard_status == "failed"),
+        "scorecard_unavailable": sum(1 for result in results if result.scorecard_status == "unavailable"),
         "output_dir": str(output_dir),
         "dry_run": bool(args.dry_run),
         "no_repository_changes_made": True,

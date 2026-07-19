@@ -83,6 +83,7 @@ github-supply-chain-hardening-analysis/
   scripts/
     discover_tokens.py
     gh_orchestrator.py
+    scorecard_runner.py
 ```
 
 When executing commands, first change into this skill directory so `scripts/...`, `requirements.txt`, and `./proposals` resolve correctly.
@@ -140,6 +141,7 @@ python scripts/gh_orchestrator.py \
   --output-dir ./proposals \
   --max-concurrency 5 \
   --repo-timeout-seconds 600 \
+  --scorecard-timeout-seconds 300 \
   --clone-depth 1
 ```
 
@@ -161,12 +163,18 @@ python scripts/gh_orchestrator.py --user "$github_user_name" --token-source auto
 
 The analysis must treat OpenSSF Scorecard as a primary evidence source, not just a workflow to add. For each repository:
 
-1. Run Scorecard using the command-line interface (or the public web viewer for public repositories), for example:
+1. Let `gh_orchestrator.py` run Scorecard automatically. It prefers a local `scorecard` executable. If none is installed, `scripts/scorecard_runner.py` finds a working Docker-compatible runtime (`docker`, `podman`, or `nerdctl`), pulls `ghcr.io/ossf/scorecard:latest`, and runs the image. To run the same fallback directly:
+
    ```bash
-   scorecard --repo github.com/owner/repository --format json --show-details > scorecard.json
+   python scripts/scorecard_runner.py \
+     --repo owner/repository \
+     --output scorecard.json
    ```
-2. Record the overall score and a summary of each check result, paying special attention to checks rated `Critical` or `High` risk.
-3. Map failing or low-scoring Scorecard checks to concrete remediations:
+
+   Use `--container-runtime <name-or-path>` to prefer another Docker-compatible runtime. A local Scorecard failure is reported as a failure; container fallback is used when the local executable is absent.
+2. Authentication is selected, without printing it, from `GITHUB_AUTH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`. The runner maps the selected token to Scorecard's documented `GITHUB_AUTH_TOKEN` environment variable. For a container, `-e GITHUB_AUTH_TOKEN` forwards the value from the child process environment, so it is not present in command arguments or shell history. The container is removed after execution. Users who can inspect the container runtime/daemon may still inspect a running container's environment and must already be treated as privileged.
+3. Record the overall score and a summary of each check result, paying special attention to the lowest-scoring checks. The proposal's `derived_risk_rating` is a local prioritization band derived from the numeric score, not a risk label emitted by Scorecard.
+4. Map failing or low-scoring Scorecard checks to concrete remediations:
 
    | Scorecard check | Typical remediation |
    |-----------------|---------------------|
@@ -193,8 +201,8 @@ The analysis must treat OpenSSF Scorecard as a primary evidence source, not just
    - **Dependency-Update-Tool** and **Security-Policy** map to a `SECURITY-INSIGHTS.yml` declaration.
    - Inconclusive vulnerability findings may be clarified with **OpenVEX** statements.
 
-4. Include the Scorecard JSON output path and a summarized check table in the generated proposal.
-5. Prioritize remediation proposals by Scorecard risk rating (`Critical`, then `High`, then `Medium`/`Low`), intersected with repository criticality and recent activity.
+5. Include the Scorecard JSON output path and a summarized check table in the generated proposal. Full JSON is saved under `./proposals/scorecards/` by default.
+6. Prioritize remediation proposals by the derived risk band (`Critical`, then `High`, then `Medium`/`Low`), intersected with repository criticality and recent activity.
 
 ## 2026 GitHub hardened SDLC concern areas
 
@@ -368,6 +376,7 @@ The agent’s final response to the user must include:
 - Number of proposals generated.
 - Number of repositories failed.
 - Number of repositories timed out.
+- Number of Scorecard runs that succeeded, failed, or were unavailable, including whether local Scorecard or a container runtime executed successful runs.
 - Output directory.
 - A clear statement that no repository changes were made.
 
@@ -375,7 +384,9 @@ The agent’s final response to the user must include:
 
 The agent must report:
 
-- Missing token from both `GITHUB_TOKEN` and `gh auth token`.
+- Missing token from `GITHUB_AUTH_TOKEN`, `GITHUB_TOKEN`, and `gh auth token`.
+- Scorecard unavailable because neither the local executable nor a working Docker-compatible runtime exists.
+- Scorecard image pull or execution failure (the repository proposal is still generated, clearly marked as heuristic-only Scorecard evidence).
 - Authentication failure.
 - Organization or user not found.
 - Target not visible to the selected token source.
