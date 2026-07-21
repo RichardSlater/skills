@@ -8,7 +8,7 @@ This repository is maintained from the default branch. Security fixes are made a
 
 Please do **not** report security vulnerabilities in public GitHub issues.
 
-Instead, use GitHub's private vulnerability reporting if it is enabled for this repository. If private reporting is not available, contact the repository owner privately and include enough information to reproduce and assess the issue.
+Instead, [report the vulnerability privately through GitHub](https://github.com/RichardSlater/skills/security/advisories/new). If private reporting is unavailable, contact the repository owner privately and include enough information to reproduce and assess the issue.
 
 Please include:
 

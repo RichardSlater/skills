@@ -1,5 +1,6 @@
 # Local agent/config directories
 .pi/
+.pi-subagents/
 .agent/
 
 # Proposals

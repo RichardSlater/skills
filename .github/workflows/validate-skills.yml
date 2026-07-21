@@ -2,16 +2,8 @@ name: Validate Skills
 
 on:
   pull_request:
-    paths:
-      - "skills/**"
-      - ".github/workflows/**"
-      - ".github/dependabot.yml"
   push:
     branches: [main]
-    paths:
-      - "skills/**"
-      - ".github/workflows/**"
-      - ".github/dependabot.yml"
 
 permissions:
   contents: read
@@ -22,11 +14,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+
+      - name: Setup Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements/validate.txt
 
       - name: Validate SKILL.md files
         run: |
@@ -42,6 +44,15 @@ jobs:
           find skills -type d -name scripts -print0 | while IFS= read -r -d '' dir; do
             python -m compileall -q "$dir"
           done
+
+      - name: Lint Python
+        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        with:
+          version: "0.12.0"
+          args: check skills
+
+      - name: Run unit tests
+        run: python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
 
       - name: Verify GitHub Actions are covered by Dependabot
         run: |

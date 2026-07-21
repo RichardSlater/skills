@@ -14,7 +14,20 @@ Thank you for improving this skills repository.
 2. Make the smallest safe change that solves the problem.
 3. Update documentation when behavior, usage, or safety expectations change.
 4. Run relevant validation before opening a pull request.
-5. Open a pull request using the template and include validation evidence.
+5. Add or update automated tests for behavior changes. Changes that cannot be tested automatically must explain why in the pull request.
+6. Open a pull request using the template and include validation evidence.
+
+## Validation commands
+
+Run the repository checks before opening a pull request:
+
+```bash
+ruff check skills
+python -m compileall -q skills
+python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
+```
+
+The `Validate Skills` workflow runs these checks for every pull request and every commit to `main`. New functionality and bug fixes must include regression tests where practical; reviewers should not merge known test or lint failures.
 
 ## Validation checklist
 
@@ -32,11 +45,7 @@ For Python script changes:
 - [ ] Authentication uses local environment/CLI mechanisms rather than pasted secrets.
 - [ ] Error messages are actionable and do not expose sensitive data.
 - [ ] Repository-scale work remains inside scripts rather than agent context.
-- [ ] Relevant commands were run, for example:
-
-  ```bash
-  python -m compileall skills/github-supply-chain-hardening-analysis/scripts
-  ```
+- [ ] The repository validation commands above pass.
 
 ## Coding and documentation standards
 
