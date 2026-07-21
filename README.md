@@ -1,5 +1,8 @@
 # Skills
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13724/badge)](https://www.bestpractices.dev/projects/13724)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/RichardSlater/skills/badge)](https://securityscorecards.dev/viewer/?uri=github.com/RichardSlater/skills)
+
 A collection of reusable agent skills for analyzing and improving GitHub repository supply-chain security.
 
 This repository currently focuses on GitHub supply-chain hardening workflows: read-only organization/account analysis and proposal-driven remediation through reviewed pull requests.
