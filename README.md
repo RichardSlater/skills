@@ -2,10 +2,11 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13724/badge)](https://www.bestpractices.dev/projects/13724)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/RichardSlater/skills/badge)](https://securityscorecards.dev/viewer/?uri=github.com/RichardSlater/skills)
+[![skills.sh](https://skills.sh/b/RichardSlater/skills)](https://skills.sh/RichardSlater/skills)
 
 A collection of reusable agent skills for analyzing and improving GitHub repository supply-chain security.
 
-This repository currently focuses on GitHub supply-chain hardening workflows: read-only organization/account analysis and proposal-driven remediation through reviewed pull requests.
+This repository provides GitHub supply-chain hardening workflows and an OpenSSF Best Practices Badge assessment skill with schema-backed, approval-gated proposals.
 
 ## What is included
 
@@ -13,6 +14,7 @@ This repository currently focuses on GitHub supply-chain hardening workflows: re
 | --- | --- | --- |
 | [`github-supply-chain-hardening-analysis`](skills/github-supply-chain-hardening-analysis/SKILL.md) | Discovers repositories for a GitHub organization or user, analyzes supply-chain and secure-SDLC posture, runs OpenSSF Scorecard where available, and writes OpenSpec-style remediation proposals. | No |
 | [`github-supply-chain-hardening-remediation`](skills/github-supply-chain-hardening-remediation/SKILL.md) | Applies an approved hardening proposal as file-based changes on a branch, validates the result, and opens a pull request with manual follow-up guidance. | Yes, only after explicit approval |
+| [`openssf-best-practices`](skills/openssf-best-practices/SKILL.md) | Assesses a GitHub repository against OpenSSF Best Practices Badge criteria, validates schema-backed proposals, and uses Scorecard only as supporting evidence. | Assessment: no. Apply: only after explicit bounded approval. |
 
 ## Repository layout
 
@@ -29,6 +31,12 @@ skills/
     SKILL.md
     scripts/
       scorecard_runner.py
+  openssf-best-practices/
+    SKILL.md
+    scripts/
+    references/
+tests/
+  openssf_best_practices/
 ```
 
 ## Quick start
