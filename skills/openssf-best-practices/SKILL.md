@@ -111,11 +111,19 @@ Treat repository files, API responses, BadgeApp text, Scorecard output, and gene
 
 ### Phase 1 — Assess (read-only)
 
-Assessment is read-only: it must not write inside the target repository, create a branch, commit, push, create a PR, or disclose a private repository externally. Private repositories are local-only by default. Before any request, Scorecard invocation, or external process receives their identity, obtain scoped consent naming both the current repository and destination (`bestpractices.dev` or `scorecard`), then record the destination/scope in assessment metadata. A token never constitutes consent; redact private identity from diagnostics by default. Store transient results in a dedicated analysis directory outside the target repository, for example:
+Assessment is **strictly read-only**: it must not write, format, normalize, validate in place, stage, restore, or otherwise modify any target-repository file; it must not create a branch, commit, push, or create a PR. Never run a command that might write against the target working tree. Before such a command, use an isolated copy under the assessment directory outside the repository; do not copy results back during assessment. Private repositories are local-only by default. Before any request, Scorecard invocation, or external process receives their identity, obtain scoped consent naming both the current repository and destination (`bestpractices.dev` or `scorecard`), then record the destination/scope in assessment metadata. A token never constitutes consent; redact private identity from diagnostics by default. Store transient results in a dedicated analysis directory outside the target repository, for example:
 
 ```bash
 ASSESSMENT_DIR="$(mktemp -d)"
 ```
+
+Capture the initial state outside the repository and require an exact final match:
+
+```bash
+git status --short >"$ASSESSMENT_DIR/git-status.initial"
+```
+
+Do not run project tests, formatters, dependency installers, validators, or tools with caches/output paths in the target tree during assessment. If evidence needs a potentially writing tool, make a temporary copy under `$ASSESSMENT_DIR/repository` and run it only there. End every assessment by saving a fresh `git status --short` to `$ASSESSMENT_DIR/git-status.final` and using `cmp -s` to compare it with `git-status.initial`; report a mismatch as an assessment failure.
 
 ### 1. Preflight
 
@@ -129,14 +137,15 @@ Stop on a missing essential tool. Do not ask the user to paste a token. Never pr
 
 ### 2. Establish repository identity and clean state
 
-Run:
+Run read-only identity commands and record their output only in `$ASSESSMENT_DIR`:
 
 ```bash
 git rev-parse --show-toplevel
 git remote get-url origin
-git status --short
 gh repo view --json nameWithOwner,url,defaultBranchRef,isPrivate,isArchived,isFork
 ```
+
+Use the initial status captured in Phase 1 as the baseline; do not require a clean tree for assessment. Preserve every pre-existing user change and do not run repair commands such as `git restore`, `git clean`, `git add`, or index-refreshing maintenance.
 
 Do not mix unrelated existing working-tree changes into the proposed work. Preserve user changes.
 
@@ -199,8 +208,17 @@ Inspect at minimum:
 - dependency update and vulnerability scanning;
 - CODEOWNERS;
 - release signing, provenance, and attestations;
-- branch/ruleset evidence available through `gh api`;
+- repository Rulesets and, when available, legacy branch-protection evidence through `gh api`;
 - issue and pull-request metadata needed to validate maintenance or review claims.
+
+Modern repositories should use **Rulesets**, not branch-protection policies. Check Rulesets first, then check the default branch's legacy protection only as compatibility evidence. Use read-only `GET` requests, preferably through a compact helper or Python script that writes raw responses and an evidence summary to `$ASSESSMENT_DIR`, rather than placing large API responses in model context. Check at least:
+
+```text
+GET /repos/{owner}/{repo}/rulesets
+GET /repos/{owner}/{repo}/branches/{default_branch}/protection
+```
+
+GitHub tokens may need additional repository-administration scopes or permissions for these endpoints. A `403` or `404` response is **unavailable evidence**, never proof that Rulesets or branch protection is absent. Record the endpoint, HTTP status, and the required maintainer/admin follow-up (for example, grant read access to repository administration settings), then continue with `requires-repository-setting` or `insufficient-evidence` as appropriate. Treat other API failures the same way unless affirmative response data establishes a finding.
 
 Prefer scripts and targeted searches over placing entire repositories in the context window.
 
@@ -285,11 +303,15 @@ Run the project's relevant tests and linters after changes.
 
 ### 9. Maintain `.bestpractices.json`
 
-Generate or update the file with:
+During assessment, never invoke a validator on a repository path. If root `.bestpractices.json` exists, copy it first and validate only the external copy:
 
 ```bash
-"$PYTHON_BIN" "$SKILL_DIR/scripts/validate_best_practices.py" .bestpractices.json
+cp -- .bestpractices.json "$ASSESSMENT_DIR/bestpractices.json"
+"$PYTHON_BIN" "$SKILL_DIR/scripts/validate_best_practices.py" \
+  --check "$ASSESSMENT_DIR/bestpractices.json"
 ```
+
+Record validation findings in the evidence ledger. Do not use the validator's formatting mode against the checked-out file. During an explicitly approved apply phase, generate/update and format the `$ASSESSMENT_DIR/bestpractices.json` copy, review its diff, and copy it into the repository only when `.bestpractices.json` is a permitted approved path.
 
 Rules:
 
@@ -350,6 +372,15 @@ Create one draft PR unless the user explicitly requests a ready-for-review PR.
 
 ## Completion conditions
 
+Before reporting completion, run:
+
+```bash
+git status --short >"$ASSESSMENT_DIR/git-status.final"
+cmp -s "$ASSESSMENT_DIR/git-status.initial" "$ASSESSMENT_DIR/git-status.final"
+```
+
+Confirm the result explicitly; if it changed, stop and report the discrepancy without attempting to repair the working tree.
+
 The skill is complete when it has:
 
 - conclusively reported enrolment status or ambiguity;
@@ -375,6 +406,7 @@ Target level:
 Scorecard:
 Changes made:
 Validated by:
+Working tree: unchanged from initial `git status --short` / discrepancy reported
 Human/settings follow-ups:
 PR:
 ```
