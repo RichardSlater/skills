@@ -8,6 +8,10 @@ compatibility: Python 3.11+, GitHub CLI, network access; Scorecard or Podman, Do
 
 ## Purpose
 
+### Default intent
+
+When this skill is explicitly invoked without a task, perform a read-only local assessment of the current Git repository. Do not contact bestpractices.dev, GitHub APIs, or Scorecard until the user grants the required destination-specific consent. Do not modify repository files, create branches, or prepare a PR without explicit apply approval.
+
 Set `SKILL_DIR` to the absolute directory containing this installed `SKILL.md`, and use the Python 3 interpreter selected for the session:
 
 ```bash
