@@ -56,6 +56,8 @@ Expected starting state:
 - `gh auth token` can provide a GitHub token where authentication is needed;
 - at least one of `scorecard`, `podman`, `docker`, or `nerdctl` is available.
 
+GitHub CLI may have several authenticated accounts. Repository ownership does not prove which account has the required repository permission, so inspect the active account and available accounts before relying on `gh` API evidence.
+
 ## Non-negotiable truthfulness rules
 
 1. Every `Met` answer must have concrete evidence.
@@ -135,9 +137,31 @@ Run:
 
 Stop on a missing essential tool. Do not ask the user to paste a token. Never print token values.
 
+Before any authenticated GitHub API evidence request, inventory the configured `gh` accounts without disclosing token values:
+
+```bash
+"$PYTHON_BIN" "$SKILL_DIR/scripts/github_auth.py" \
+  --repo owner/repository >"$ASSESSMENT_DIR/gh-auth.initial.json"
+```
+
+This command reports only account login names, active state, token scope names, and the active account's `viewerPermission` for the repository. It does not prove that an inactive account has access, and a repository owner name is never a basis for choosing an account.
+
+If the active account lacks the needed permission, API evidence is unavailable, or an endpoint returns a scope error:
+
+1. show the account login names and active-account permission result from `gh-auth.initial.json`;
+2. ask the user to choose an account; never switch accounts automatically;
+3. obtain explicit approval before changing the local `gh` authentication configuration, naming the hostname and selected account;
+4. after approval, run `gh auth switch --hostname github.com --user "$selected_account"`, rerun `github_auth.py --repo owner/repository`, and record `gh-auth.selected.json`;
+5. request only the scope named by GitHub's error using `gh auth refresh --hostname github.com --scopes "$required_scope"`. This is an interactive browser authorization: verify that the browser account matches the selected `gh` account. A mismatch is a blocker, not a reason to accept another account's credentials;
+6. rerun only the previously unavailable read-only endpoints and record their HTTP status and result.
+
+Scope elevation and account switching change local authentication configuration. They require user approval even when the assessment itself is authorized. Do not add broad scopes preemptively or ask for/paste a token.
+
+Before completion, if temporary elevation was approved, restore the original active account with `gh auth switch`. Remove only scopes absent from `gh-auth.initial.json` and added for this assessment, using `gh auth refresh --remove-scopes "$temporarily_added_scope"`; do not remove baseline scopes. `gh auth refresh --reset-scopes` requires separate approval because it can remove unrelated scopes. Record the post-cleanup inventory in `$ASSESSMENT_DIR/gh-auth.final.json`. If cleanup cannot be completed, report retained account and scopes explicitly.
+
 ### 2. Establish repository identity and clean state
 
-Run read-only identity commands and record their output only in `$ASSESSMENT_DIR`:
+Run read-only identity commands and record their output only in `$ASSESSMENT_DIR`. Run the account inventory first; `gh repo view` uses the selected active account:
 
 ```bash
 git rev-parse --show-toplevel
@@ -236,9 +260,9 @@ Authentication order:
 
 1. `GITHUB_AUTH_TOKEN`;
 2. `GITHUB_TOKEN`;
-3. `gh auth token`.
+3. `gh auth token` from the user-selected active `gh` account.
 
-The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. Scorecard uses a reviewed immutable image digest and one total deadline covering runtime discovery, image pull, and scan. Each result records artifact provenance, command mode, timing, and timeout status; captured output is bounded. Run without a token where supported.
+Record which source was used, but never its value. If Scorecard needs access beyond the selected account's existing scopes, report the exact blocker; do not elevate scopes just for Scorecard without a new scoped approval. The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. Scorecard uses a reviewed immutable image digest and one total deadline covering runtime discovery, image pull, and scan. Each result records artifact provenance, command mode, timing, and timeout status; captured output is bounded. Run without a token where supported.
 
 Scorecard is supporting evidence. It is not interchangeable with Best Practices criteria. A high Scorecard result does not prove a badge criterion, and a low result does not automatically make a self-assessment answer false.
 
