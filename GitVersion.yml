@@ -1,0 +1,4 @@
+# GitVersion derives release versions from annotated v{major}.{minor}.{patch} tags.
+# The initial stable release is v0.1.0.
+next-version: 0.1.0
+tag-prefix: '[vV]'

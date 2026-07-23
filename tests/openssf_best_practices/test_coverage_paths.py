@@ -19,7 +19,7 @@ class AnalyzePaths(unittest.TestCase):
   with patch.object(analyze,'build_opener',return_value=type('O',(),{'open':lambda *_, **__: (_ for _ in ()).throw(analyze.URLError('down'))})()): self.assertEqual(analyze.lookup_redirect('x')['status'],'failed')
   with patch.object(analyze,'urlopen',return_value=type('R',(),{'__enter__':lambda s:s,'__exit__':lambda *a:False,'read':lambda s:-1 and b'{"id":2}'})()): self.assertEqual(analyze.fetch_project(2)['id'],2)
  def test_git_and_write_helpers(self):
-  with patch.object(analyze,'run',return_value=subprocess.CompletedProcess([],1,'','bad')): 
+  with patch.object(analyze,'run',return_value=subprocess.CompletedProcess([],1,'','bad')):
    with self.assertRaises(RuntimeError): analyze.tracked_text_files()
   with tempfile.TemporaryDirectory() as temp:
    target=Path(temp)/'x.json'; analyze.write_json(target,{'x':1}); self.assertEqual(json.loads(target.read_text()),{'x':1})

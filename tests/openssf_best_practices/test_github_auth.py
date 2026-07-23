@@ -46,6 +46,25 @@ class GitHubAuthTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             auth.viewer_permission("https://github.com/owner/repo")
 
+    def test_inventory_inspect_and_cli_paths(self) -> None:
+        status = "✓ Logged in to github.com account alice\n  - Active account: true\n"
+        with patch.object(auth, "run", return_value=subprocess.CompletedProcess([], 0, status, "")):
+            self.assertEqual(auth.account_inventory("github.com"), [{"login": "alice", "active": True, "scopes": []}])
+        with patch.object(auth, "run", return_value=subprocess.CompletedProcess([], 1, "", "denied")):
+            with self.assertRaisesRegex(RuntimeError, "unable to enumerate"):
+                auth.account_inventory("github.com")
+        with patch.object(auth, "account_inventory", return_value=[{"login": "alice", "active": True, "scopes": []}]), patch.object(auth, "viewer_permission", return_value=("WRITE", None)):
+            self.assertEqual(
+                auth.inspect("github.com", "owner/repo"),
+                {"hostname": "github.com", "accounts": [{"login": "alice", "active": True, "scopes": []}], "active_account": "alice", "repository": "owner/repo", "active_viewer_permission": "WRITE"},
+            )
+        with patch("sys.argv", ["github_auth.py"]), patch.object(auth, "inspect", return_value={"accounts": []}), patch("builtins.print") as output:
+            self.assertEqual(auth.main(), 0)
+        self.assertIn('"accounts": []', output.call_args.args[0])
+        with patch("sys.argv", ["github_auth.py"]), patch.object(auth, "inspect", side_effect=RuntimeError("blocked")), patch("builtins.print") as output:
+            self.assertEqual(auth.main(), 3)
+        self.assertEqual(output.call_args.args[0], "ERROR: blocked")
+
 
 if __name__ == "__main__":
     unittest.main()

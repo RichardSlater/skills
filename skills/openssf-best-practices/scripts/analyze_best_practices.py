@@ -37,15 +37,25 @@ MAX_SCAN_SECONDS = 5.0
 
 def run(command: list[str], timeout: int = 30) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        command, capture_output=True, text=True, check=False, shell=False, timeout=timeout
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+        timeout=timeout,
     )
 
 
 def repo_metadata() -> dict[str, Any]:
-    result = run([
-        "gh", "repo", "view",
-        "--json", "nameWithOwner,url,defaultBranchRef,isPrivate,isArchived,isFork"
-    ])
+    result = run(
+        [
+            "gh",
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner,url,defaultBranchRef,isPrivate,isArchived,isFork",
+        ]
+    )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "gh repo view failed")
     return json.loads(result.stdout)
@@ -55,7 +65,17 @@ def assessment_output_is_ignored(repository: Path, relative_output: Path) -> boo
     """Use Git's ignore rules before allowing assessment output in a repository."""
     if relative_output.is_absolute() or ".." in relative_output.parts:
         return False
-    result = run(["git", "-C", str(repository), "check-ignore", "--quiet", "--", str(relative_output)])
+    result = run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "check-ignore",
+            "--quiet",
+            "--",
+            str(relative_output),
+        ]
+    )
     return result.returncode == 0
 
 
@@ -63,38 +83,83 @@ def tracked_text_files() -> list[Path]:
     result = run(["git", "ls-files", "-z"])
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "git ls-files failed")
-    return [Path(raw) for raw in result.stdout.split("\0") if raw and (Path(raw).name.lower().startswith("readme") or Path(raw).suffix.lower() in TEXT_SUFFIXES)]
+    return [
+        Path(raw)
+        for raw in result.stdout.split("\0")
+        if raw
+        and (
+            Path(raw).name.lower().startswith("readme")
+            or Path(raw).suffix.lower() in TEXT_SUFFIXES
+        )
+    ]
 
 
-def scan_project_ids(paths: list[Path], *, root: Path | None = None, clock=time.monotonic) -> tuple[set[int], list[dict[str, Any]], dict[str, Any]]:
+def scan_project_ids(
+    paths: list[Path], *, root: Path | None = None, clock=time.monotonic
+) -> tuple[set[int], list[dict[str, Any]], dict[str, Any]]:
     """Bounded, non-symlink documentation scan with completeness metadata."""
-    root = root or Path.cwd(); started = clock(); ids: set[int] = set(); evidence: list[dict[str, Any]] = []
-    metadata: dict[str, Any] = {"files_considered": len(paths), "files_scanned": 0, "bytes_read": 0, "skipped": {}, "limits_hit": False}
+    root = root or Path.cwd()
+    started = clock()
+    ids: set[int] = set()
+    evidence: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {
+        "files_considered": len(paths),
+        "files_scanned": 0,
+        "bytes_read": 0,
+        "skipped": {},
+        "limits_hit": False,
+    }
     for path in paths:
-        if metadata["files_scanned"] >= MAX_SCAN_FILES or clock() - started >= MAX_SCAN_SECONDS:
-            metadata["limits_hit"] = True; break
+        if (
+            metadata["files_scanned"] >= MAX_SCAN_FILES
+            or clock() - started >= MAX_SCAN_SECONDS
+        ):
+            metadata["limits_hit"] = True
+            break
         full = root / path
         try:
             stat_result = full.lstat()
         except OSError:
-            metadata["skipped"]["unreadable"] = metadata["skipped"].get("unreadable", 0) + 1; continue
+            metadata["skipped"]["unreadable"] = (
+                metadata["skipped"].get("unreadable", 0) + 1
+            )
+            continue
         if full.is_symlink():
-            metadata["skipped"]["symlink"] = metadata["skipped"].get("symlink", 0) + 1; continue
+            metadata["skipped"]["symlink"] = metadata["skipped"].get("symlink", 0) + 1
+            continue
         if stat_result.st_size > MAX_SCAN_FILE_BYTES:
-            metadata["skipped"]["oversized"] = metadata["skipped"].get("oversized", 0) + 1; continue
+            metadata["skipped"]["oversized"] = (
+                metadata["skipped"].get("oversized", 0) + 1
+            )
+            continue
         remaining_bytes = MAX_SCAN_TOTAL_BYTES - metadata["bytes_read"]
         if remaining_bytes <= 0:
-            metadata["limits_hit"] = True; break
+            metadata["limits_hit"] = True
+            break
         try:
-            with full.open("rb") as stream: raw = stream.read(remaining_bytes + 1)
+            with full.open("rb") as stream:
+                raw = stream.read(remaining_bytes + 1)
         except OSError:
-            metadata["skipped"]["unreadable"] = metadata["skipped"].get("unreadable", 0) + 1; continue
+            metadata["skipped"]["unreadable"] = (
+                metadata["skipped"].get("unreadable", 0) + 1
+            )
+            continue
         if len(raw) > remaining_bytes:
-            metadata["limits_hit"] = True; break
-        metadata["bytes_read"] += len(raw); metadata["files_scanned"] += 1
+            metadata["limits_hit"] = True
+            break
+        metadata["bytes_read"] += len(raw)
+        metadata["files_scanned"] += 1
         text = raw.decode("utf-8", errors="replace")
         for match in PROJECT_PATTERN.finditer(text):
-            project_id = int(match.group(1)); ids.add(project_id); evidence.append({"source": str(path), "project_id": project_id, "match": match.group(0)[:200]})
+            project_id = int(match.group(1))
+            ids.add(project_id)
+            evidence.append(
+                {
+                    "source": str(path),
+                    "project_id": project_id,
+                    "match": match.group(0)[:200],
+                }
+            )
     return ids, evidence, metadata
 
 
@@ -107,15 +172,25 @@ def normalize_github_repo_url(value: str) -> tuple[str, str, str]:
         host, owner, repository = ssh.groups()
     else:
         parsed = urlparse(value)
-        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("repository URL must be a credential-free GitHub HTTPS or SSH URL")
+        if (
+            parsed.scheme != "https"
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "repository URL must be a credential-free GitHub HTTPS or SSH URL"
+            )
         host = parsed.hostname or ""
         parts = [part for part in parsed.path.split("/") if part]
         if len(parts) != 2:
             raise ValueError("repository URL must include GitHub owner and repository")
         owner, repository = parts
     if host.lower() != "github.com" or not owner or not repository:
-        raise ValueError("repository URL must identify a github.com owner and repository")
+        raise ValueError(
+            "repository URL must identify a github.com owner and repository"
+        )
     repository = repository.removesuffix(".git")
     if not repository:
         raise ValueError("repository URL must include a repository name")
@@ -151,24 +226,31 @@ def discover_ids(private_consent: str | None = None) -> dict[str, Any]:
     )
     ids, evidence, scan = scan_project_ids(tracked_text_files())
 
-    for proposal in (Path(".bestpractices.json"), Path(".project.d/bestpractices.json")):
+    for proposal in (
+        Path(".bestpractices.json"),
+        Path(".project.d/bestpractices.json"),
+    ):
         if proposal.exists():
-            evidence.append({
-                "source": str(proposal),
-                "project_id": None,
-                "match": "automation proposal file exists; this alone does not prove enrolment",
-            })
+            evidence.append(
+                {
+                    "source": str(proposal),
+                    "project_id": None,
+                    "match": "automation proposal file exists; this alone does not prove enrolment",
+                }
+            )
 
     lookup: dict[str, Any] = {"status": "not_requested"}
     if not meta.get("isPrivate", False) or consent:
         lookup = lookup_redirect(meta["url"])
         if lookup.get("project_id"):
             ids.add(int(lookup["project_id"]))
-            evidence.append({
-                "source": "bestpractices.dev URL lookup",
-                "project_id": int(lookup["project_id"]),
-                "match": lookup.get("location"),
-            })
+            evidence.append(
+                {
+                    "source": "bestpractices.dev URL lookup",
+                    "project_id": int(lookup["project_id"]),
+                    "match": lookup.get("location"),
+                }
+            )
 
     verified_ids: list[int] = []
     rejected_candidates: list[dict[str, Any]] = []
@@ -178,9 +260,12 @@ def discover_ids(private_consent: str | None = None) -> dict[str, Any]:
         "repository": meta,
         "project_ids": verified_ids,
         "enrolment": (
-            "indeterminate" if scan["limits_hit"]
-            else "identified" if len(verified_ids) == 1
-            else "ambiguous" if len(verified_ids) > 1
+            "indeterminate"
+            if scan["limits_hit"]
+            else "identified"
+            if len(verified_ids) == 1
+            else "ambiguous"
+            if len(verified_ids) > 1
             else "not-identified"
         ),
         "evidence": evidence,
@@ -235,11 +320,13 @@ def scorecard_summary(data: dict[str, Any]) -> dict[str, Any]:
     checks = data.get("checks", [])
     compact = []
     for check in checks:
-        compact.append({
-            "name": check.get("name"),
-            "score": check.get("score"),
-            "reason": check.get("reason"),
-        })
+        compact.append(
+            {
+                "name": check.get("name"),
+                "score": check.get("score"),
+                "reason": check.get("reason"),
+            }
+        )
     return {
         "score": data.get("score"),
         "date": data.get("date"),
@@ -248,11 +335,19 @@ def scorecard_summary(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_project_response(data: Any, expected_repo_url: str | None = None) -> dict[str, Any]:
-    if not isinstance(data, dict) or not isinstance(data.get("id"), int) or not isinstance(data.get("repo_url"), str):
+def validate_project_response(
+    data: Any, expected_repo_url: str | None = None
+) -> dict[str, Any]:
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("id"), int)
+        or not isinstance(data.get("repo_url"), str)
+    ):
         raise ValueError("project response is missing required identity fields")
     normalize_github_repo_url(data["repo_url"])
-    if expected_repo_url and normalize_github_repo_url(data["repo_url"]) != normalize_github_repo_url(expected_repo_url):
+    if expected_repo_url and normalize_github_repo_url(
+        data["repo_url"]
+    ) != normalize_github_repo_url(expected_repo_url):
         raise ValueError("project response repository does not match target identity")
     return data
 
@@ -260,7 +355,8 @@ def validate_project_response(data: Any, expected_repo_url: str | None = None) -
 def project_summary(data: dict[str, Any]) -> dict[str, Any]:
     data = validate_project_response(data)
     status_fields = {
-        key: value for key, value in data.items()
+        key: value
+        for key, value in data.items()
         if isinstance(key, str) and key.endswith("_status")
     }
     counts: dict[str, int] = {}
@@ -304,7 +400,11 @@ def proposal_url(project_id: int, section: str, answers: dict[str, Any]) -> str:
     for key, value in answers.items():
         if key.endswith("_status"):
             base = key[:-7]
-            if section in fields[base]["levels"] and value not in {"?", "unknown", None}:
+            if section in fields[base]["levels"] and value not in {
+                "?",
+                "unknown",
+                None,
+            }:
                 allowed[key] = value
                 justification = f"{base}_justification"
                 if justification in answers:
@@ -312,12 +412,14 @@ def proposal_url(project_id: int, section: str, answers: dict[str, Any]) -> str:
     query = urlencode(allowed)
     url = f"{BASE}/en/projects/{project_id}/{section}/edit?{query}"
     if len(url) > MAX_PROPOSAL_URL_LENGTH:
-        raise ProposalTooLong({
-            "project_id": project_id,
-            "section": section,
-            "answers": allowed,
-            "reason": "URL exceeds conservative 8,000-character limit; split by section or field groups.",
-        })
+        raise ProposalTooLong(
+            {
+                "project_id": project_id,
+                "section": section,
+                "answers": allowed,
+                "reason": "URL exceeds conservative 8,000-character limit; split by section or field groups.",
+            }
+        )
     return url
 
 
@@ -327,7 +429,9 @@ def preflight() -> int:
     required = ["git", "gh"]
     missing = [name for name in required if not shutil.which(name)]
     executors = [
-        name for name in ("scorecard", "podman", "docker", "nerdctl") if shutil.which(name)
+        name
+        for name in ("scorecard", "podman", "docker", "nerdctl")
+        if shutil.which(name)
     ]
     result = {
         "python_executable": sys.executable,
@@ -347,7 +451,9 @@ def preflight() -> int:
     if missing or not executors:
         unavailable = missing or ["scorecard, podman, docker, or nerdctl"]
         print(
-            "ERROR: preflight missing required tool(s): " + ", ".join(unavailable) + ".",
+            "ERROR: preflight missing required tool(s): "
+            + ", ".join(unavailable)
+            + ".",
             file=sys.stderr,
         )
         return 3
@@ -386,7 +492,9 @@ def main() -> int:
 
     proposal = sub.add_parser("proposal-url")
     proposal.add_argument("--project-id", type=int, required=True)
-    proposal.add_argument("--section", choices=("passing", "silver", "gold"), required=True)
+    proposal.add_argument(
+        "--section", choices=("passing", "silver", "gold"), required=True
+    )
     proposal.add_argument("--answers", type=Path, required=True)
     proposal.add_argument("--fallback-output", type=Path)
 
@@ -410,13 +518,17 @@ def main() -> int:
             if not args.project or not args.project.is_file():
                 raise ValueError("summarize requires a valid --project evidence file")
             result: dict[str, Any] = {
-                "best_practices": project_summary(json.loads(args.project.read_text(encoding="utf-8"))),
+                "best_practices": project_summary(
+                    json.loads(args.project.read_text(encoding="utf-8"))
+                ),
                 "evidence_state": {"project": "available"},
             }
             if args.scorecard:
                 if not args.scorecard.is_file():
                     raise ValueError("requested Scorecard evidence is missing")
-                result["scorecard"] = scorecard_summary(json.loads(args.scorecard.read_text(encoding="utf-8")))
+                result["scorecard"] = scorecard_summary(
+                    json.loads(args.scorecard.read_text(encoding="utf-8"))
+                )
                 result["evidence_state"]["scorecard"] = "available"
             else:
                 result["evidence_state"]["scorecard"] = "not_requested"
@@ -429,14 +541,31 @@ def main() -> int:
                 print(proposal_url(args.project_id, args.section, answers))
             except ProposalTooLong as exc:
                 if not args.fallback_output:
-                    raise ValueError(f"{exc}; provide --fallback-output for the local proposal artifact") from exc
+                    raise ValueError(
+                        f"{exc}; provide --fallback-output for the local proposal artifact"
+                    ) from exc
                 write_json(args.fallback_output, exc.artifact)
-                print(json.dumps({"proposal_url": None, "fallback": str(args.fallback_output), "instructions": exc.artifact["reason"]}))
+                print(
+                    json.dumps(
+                        {
+                            "proposal_url": None,
+                            "fallback": str(args.fallback_output),
+                            "instructions": exc.artifact["reason"],
+                        }
+                    )
+                )
             return 0
     except PrivacyError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    except (RuntimeError, OSError, ValueError, json.JSONDecodeError, HTTPError, URLError) as exc:
+    except (
+        RuntimeError,
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        HTTPError,
+        URLError,
+    ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     return 1

@@ -29,16 +29,28 @@ Security-sensitive issues include, but are not limited to:
 - Path traversal, command injection, or unsafe shell execution in scripts.
 - Generated remediation guidance that weakens repository security.
 
-## Handling expectations
+## GitHub-based response process
 
-Maintainers will aim to:
+Private reports are handled through the GitHub security advisory created from
+the private reporting link above. The sole maintainer follows this process:
 
-1. Acknowledge valid reports promptly.
-2. Triage severity and affected scope.
-3. Prepare a fix or mitigation.
-4. Credit reporters when appropriate and requested.
+1. Confirm receipt in the advisory and request only the information needed to
+   reproduce and assess the report.
+2. Triage impact, affected versions, exploitability, and whether credentials or
+   private repository data may be involved.
+3. Track investigation, mitigation, and reporter communication in the private
+   advisory rather than public issues or pull requests.
+4. Prepare and validate a fix in a restricted branch or private fork when
+   disclosure before remediation would create avoidable risk.
+5. Coordinate disclosure with the reporter, publish the GitHub security
+   advisory when it is safe to do so, and document affected versions and user
+   action in release notes.
+6. Credit reporters in the advisory unless they request anonymity.
 
-Do not disclose the vulnerability publicly until maintainers have had a reasonable opportunity to investigate and remediate it.
+This process defines how future reports are handled; it does not assert a
+historical response-time record. Do not disclose a vulnerability publicly until
+the maintainer and reporter have had a reasonable opportunity to investigate
+and remediate it.
 
 ## Secret handling
 

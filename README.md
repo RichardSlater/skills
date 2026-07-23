@@ -91,6 +91,20 @@ The remediation skill is intentionally review-based. It applies approved file ch
 - Add tests or validation steps for scripts whenever behavior changes.
 - Update this README and relevant templates when adding new skills.
 
+## Documentation and roadmap
+
+- [Governance](GOVERNANCE.md) explains project roles and decision-making.
+- [Roadmap](ROADMAP.md) describes the next year's security-focused priorities.
+- [Security policy](SECURITY.md) explains private reporting and GitHub-based response handling.
+- [Support](SUPPORT.md) explains how to get non-security help.
+
+## Releases
+
+Release tags use the `v{major}.{minor}.{patch}` format. GitVersion derives the
+version from repository history and a release workflow packages the `skills/`
+directory with the core project documentation as a GitHub release asset. The
+first stable release tag will be `v0.1.0`.
+
 ## Contributing
 
 Contributions are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) before opening a pull request.

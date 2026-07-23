@@ -1,0 +1,50 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Calculate version
+        id: gitversion
+        uses: GitTools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+
+      - name: Verify release tag
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+          TAG: ${{ github.ref_name }}
+        run: test "$TAG" = "v$SEMVER"
+
+      - name: Package skills
+        id: package
+        env:
+          SEMVER: ${{ steps.gitversion.outputs.semVer }}
+        run: |
+          archive="skills-${SEMVER}.zip"
+          zip -r "$archive" skills README.md LICENSE CONTRIBUTING.md GOVERNANCE.md ROADMAP.md SECURITY.md SUPPORT.md
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ARCHIVE" --clobber
+          else
+            gh release create "$TAG" "$ARCHIVE" --title "$TAG" --generate-notes
+          fi
