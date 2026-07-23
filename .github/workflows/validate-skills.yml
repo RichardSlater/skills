@@ -52,7 +52,8 @@ jobs:
         uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
         with:
           version: "0.12.0"
-          args: check skills
+          args: check
+          src: skills
 
       - name: Run unit tests
         run: python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
