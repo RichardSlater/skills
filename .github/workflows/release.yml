@@ -94,6 +94,7 @@ jobs:
 
       - name: Publish GitHub release
         env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           ARCHIVE: ${{ runner.temp }}/release/${{ needs.package.outputs.archive }}
           PRE_RELEASE: ${{ needs.package.outputs.pre_release }}
