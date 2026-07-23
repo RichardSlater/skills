@@ -100,9 +100,11 @@ The remediation skill is intentionally review-based. It applies approved file ch
 
 ## Releases
 
-Release tags use the `v{major}.{minor}.{patch}` format. GitVersion derives the
-version from repository history and a release workflow packages the `skills/`
-directory with the core project documentation as a GitHub release asset. The
+Release tags use the `v{major}.{minor}.{patch}` format. To publish one, create
+a protected tag for a commit already reachable from `main`, then manually run
+**Publish release** with `main` selected and the tag as its input. GitVersion
+verifies the version, a read-only job packages the `skills/` directory and core
+documentation, and an approved `release` environment publishes the asset. The
 first stable release tag will be `v0.1.0`.
 
 ## Contributing

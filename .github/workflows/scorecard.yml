@@ -8,11 +8,30 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
-  analysis:
+  pull-request-analysis:
+    if: github.event_name == 'pull_request'
+    name: Scorecard analysis (pull request)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false
+
+  trusted-analysis:
+    if: github.event_name != 'pull_request'
     name: Scorecard analysis
     runs-on: ubuntu-24.04
     permissions:

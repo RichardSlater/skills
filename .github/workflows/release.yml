@@ -1,31 +1,56 @@
 name: Publish release
 
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing protected v{major}.{minor}.{patch} tag to release
+        required: true
+        type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  publish:
+  package:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      archive: ${{ steps.package.outputs.archive }}
+      tag: ${{ steps.verify.outputs.tag }}
+      tag_sha: ${{ steps.verify.outputs.tag_sha }}
     steps:
-      - name: Checkout repository
+      - name: Checkout release tag
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify release tag
+        id: verify
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must use v{major}.{minor}.{patch}." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          tag_sha="$(git rev-parse "$TAG^{commit}")"
+          git merge-base --is-ancestor "$tag_sha" origin/main
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
 
       - name: Calculate version
         id: gitversion
         uses: GitTools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
 
-      - name: Verify release tag
+      - name: Verify calculated version
         env:
           SEMVER: ${{ steps.gitversion.outputs.semVer }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.verify.outputs.tag }}
         run: test "$TAG" = "v$SEMVER"
 
       - name: Package skills
@@ -37,14 +62,37 @@ jobs:
           zip -r "$archive" skills README.md LICENSE CONTRIBUTING.md GOVERNANCE.md ROADMAP.md SECURITY.md SUPPORT.md
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Upload release archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-archive
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Download release archive
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-archive
+          path: ${{ runner.temp }}/release
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          ARCHIVE: ${{ steps.package.outputs.archive }}
-          TAG: ${{ github.ref_name }}
+          ARCHIVE: ${{ runner.temp }}/release/${{ needs.package.outputs.archive }}
+          TAG: ${{ needs.package.outputs.tag }}
+          TAG_SHA: ${{ needs.package.outputs.tag_sha }}
         run: |
+          test -f "$ARCHIVE"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ARCHIVE" --clobber
-          else
-            gh release create "$TAG" "$ARCHIVE" --title "$TAG" --generate-notes
+            echo "Release $TAG already exists; refusing to replace its assets." >&2
+            exit 1
           fi
+          gh release create "$TAG" "$ARCHIVE" --target "$TAG_SHA" --title "$TAG" --generate-notes
