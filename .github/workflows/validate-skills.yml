@@ -30,6 +30,9 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements/validate.txt
 
+      - name: Run pre-commit quality checks
+        uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+
       - name: Validate SKILL.md files
         run: |
           find skills -name SKILL.md -print0 | while IFS= read -r -d '' skill; do
@@ -49,10 +52,19 @@ jobs:
         uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
         with:
           version: "0.12.0"
-          args: check skills
+          args: check
+          src: skills
 
       - name: Run unit tests
         run: python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
+
+      - name: Install OpenSSF Best Practices test dependencies
+        run: python -m pip install --disable-pip-version-check --require-hashes -r tests/requirements-openssf-best-practices.txt
+
+      - name: Test OpenSSF Best Practices skill with coverage
+        run: |
+          python -m coverage run --rcfile=tests/.coveragerc -m unittest discover -s tests/openssf_best_practices -v
+          python -m coverage report --rcfile=tests/.coveragerc
 
       - name: Verify GitHub Actions are covered by Dependabot
         run: |

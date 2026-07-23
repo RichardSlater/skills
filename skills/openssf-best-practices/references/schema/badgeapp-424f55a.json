@@ -1,0 +1,2215 @@
+{
+  "fields": {
+    "access_continuity": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "accessibility_best_practices": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "achieve_passing": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "achieve_silver": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "assurance_case": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "automated_integration_testing": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_common_tools": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_floss_tools": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_non_recursive": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_preserve_debug": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_repeatable": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_reproducible": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "build_standard_variables": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "bus_factor": {
+      "levels": [
+        "silver",
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "code_of_conduct": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "code_review_standards": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "coding_standards": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "coding_standards_enforced": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "contribution": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "contribution_requirements": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "contributors_unassociated": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "copyright_per_file": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_algorithm_agility": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_call": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_certificate_verification": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_credential_agility": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_floss": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_keylength": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_password_storage": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_pfs": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_published": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_random": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_tls12": {
+      "levels": [
+        "silver",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_used_network": {
+      "levels": [
+        "silver",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_verification_private": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_weaknesses": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "crypto_working": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dco": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "delivery_mitm": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "delivery_unsigned": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dependency_monitoring": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "description_good": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "discussion": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_achievements": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_architecture": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_basics": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_current": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_interface": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_quick_start": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_roadmap": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "documentation_security": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dynamic_analysis": {
+      "levels": [
+        "passing",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dynamic_analysis_enable_assertions": {
+      "levels": [
+        "passing",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dynamic_analysis_fixed": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "dynamic_analysis_unsafe": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "english": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "enhancement_responses": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "external_dependencies": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "floss_license": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "floss_license_osi": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "governance": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "hardened_site": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "hardening": {
+      "levels": [
+        "silver",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "implement_secure_design": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "input_validation": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "installation_common": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "installation_development_quick": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "installation_standard_variables": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "interact": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "interfaces_current": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "internationalization": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "know_common_errors": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "know_secure_design": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "license_location": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "license_per_file": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "maintained": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "maintenance_or_update": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "no_leaked_credentials": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "regression_tests_added50": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "release_notes": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "release_notes_vulns": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "repo_distributed": {
+      "levels": [
+        "passing",
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "repo_interim": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "repo_public": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "repo_track": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "report_archive": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "report_process": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "report_responses": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "report_tracker": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "require_2FA": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "roles_responsibilities": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "secure_2FA": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "security_review": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "signed_releases": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "sites_https": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "sites_password_security": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "small_tasks": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "static_analysis": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "static_analysis_common_vulnerabilities": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "static_analysis_fixed": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "static_analysis_often": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_branch_coverage80": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_continuous_integration": {
+      "levels": [
+        "passing",
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_invocation": {
+      "levels": [
+        "passing",
+        "gold"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_most": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_policy": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_policy_mandated": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_statement_coverage80": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "test_statement_coverage90": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "tests_are_added": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "tests_documented_added": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "two_person_review": {
+      "levels": [
+        "gold"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "gold",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "updateable_reused_components": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "version_semver": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "version_tags": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "version_tags_signed": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "version_unique": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerabilities_critical_fixed": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerabilities_fixed_60_days": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerability_report_credit": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerability_report_private": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerability_report_process": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerability_report_response": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "vulnerability_response_process": {
+      "levels": [
+        "silver"
+      ],
+      "met_justification_required": false,
+      "met_url_required": true,
+      "na_allowed": false,
+      "na_justification_required": false,
+      "section": "silver",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "warnings": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "warnings_fixed": {
+      "levels": [
+        "passing"
+      ],
+      "met_justification_required": false,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": false,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    },
+    "warnings_strict": {
+      "levels": [
+        "passing",
+        "silver"
+      ],
+      "met_justification_required": true,
+      "met_url_required": false,
+      "na_allowed": true,
+      "na_justification_required": true,
+      "section": "passing",
+      "status_values": [
+        "Met",
+        "Unmet",
+        "N/A",
+        "?"
+      ],
+      "value_type": "status"
+    }
+  },
+  "schema_format_version": 1,
+  "upstream_commit": "424f55aff728c97d55a3df53b2d04deef3bcb0d9"
+}

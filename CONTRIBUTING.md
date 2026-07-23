@@ -19,15 +19,29 @@ Thank you for improving this skills repository.
 
 ## Validation commands
 
-Run the repository checks before opening a pull request:
+Install the system-managed [pre-commit](https://pre-commit.com/) command, then
+install the repository hooks once:
 
 ```bash
-ruff check skills
-python -m compileall -q skills
-python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
+pre-commit install
 ```
 
-The `Validate Skills` workflow runs these checks for every pull request and every commit to `main`. New functionality and bug fixes must include regression tests where practical; reviewers should not merge known test or lint failures.
+Run the complete local quality gate before opening a pull request:
+
+```bash
+pre-commit run --all-files
+python -m compileall -q skills
+python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
+python -m coverage run --rcfile=tests/.coveragerc -m unittest discover -s tests/openssf_best_practices -v
+python -m coverage report --rcfile=tests/.coveragerc
+```
+
+The `Validate Skills` workflow runs the same pre-commit checks, compilation,
+linting, unit tests, and scoped coverage check for every pull request and every
+commit to `main`. The coverage report is configured to fail below 85%. Major new
+functionality **must** include automated tests. Bug fixes must include regression
+tests where practical; reviewers should not merge known test, coverage, or lint
+failures.
 
 ## Validation checklist
 
@@ -48,6 +62,12 @@ For Python script changes:
 - [ ] The repository validation commands above pass.
 
 ## Coding and documentation standards
+
+Python contributions must follow the repository's Ruff linting rules; the
+pre-commit hooks enforce those rules. Markdown, YAML, and whitespace checks are
+also enforced before commit and again in GitHub Actions.
+Document any rare style exception adjacent to the relevant code so it can be
+reviewed.
 
 - Prefer explicit, readable code over cleverness.
 - Use least-privilege defaults for GitHub permissions and tokens.
