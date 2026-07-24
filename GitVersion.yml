@@ -1,4 +1,9 @@
-# GitVersion derives release versions from annotated v{major}.{minor}.{patch} tags.
-# The initial stable release is v0.1.0.
-next-version: 0.1.0
+# GitVersion derives stable releases from annotated v{major}.{minor}.{patch} tags.
+# The immutable v1.0.2 tag is the current release baseline; GitVersion discovers it from history.
 tag-prefix: '[vV]'
+commit-message-incrementing: Enabled
+major-version-bump-message: '(?m)^(?:[a-z][a-z0-9-]*(?:\([^)\r\n]+\))?!: .+|BREAKING CHANGE: .+)$'
+minor-version-bump-message: '(?m)^feat(?:\([^)\r\n]+\))?: .+$'
+patch-version-bump-message: '(?m)^fix(?:\([^)\r\n]+\))?: .+$'
+# Valid non-breaking maintenance commits do not independently create a release.
+no-bump-message: '(?m)^(?:build|chore|ci|docs|refactor|style|test)(?:\([^)\r\n]+\))?: .+$'

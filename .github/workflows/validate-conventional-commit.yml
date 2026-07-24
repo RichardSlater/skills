@@ -1,0 +1,24 @@
+name: Validate Conventional Commit
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  validate-title:
+    name: conventional-commit-title
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate canonical squash-merge title
+        env:
+          CONVENTIONAL_COMMIT: ${{ github.event.pull_request.title }}
+        run: |
+          # Accepted release signals are feat, fix, and !. Other valid types do
+          # not release unless the eventual squash commit contains a BREAKING CHANGE footer.
+          if [[ ! "$CONVENTIONAL_COMMIT" =~ ^[a-z][a-z0-9-]*(\([^)[:cntrl:]]+\))?!:\ .+$ ]]; then
+            echo "Use Conventional Commits: type(scope optional)!: description" >&2
+            echo "Examples: feat: add validator; fix(parser): handle empty input; feat!: remove API." >&2
+            exit 1
+          fi

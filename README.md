@@ -100,12 +100,16 @@ The remediation skill is intentionally review-based. It applies approved file ch
 
 ## Releases
 
-Release tags use the `v{major}.{minor}.{patch}` format. To publish one, create
-a protected tag for a commit already reachable from `main`, then manually run
-**Publish release** with `main` selected and the tag as its input. GitVersion
-verifies the version, a read-only job packages the `skills/` directory and core
-documentation, and an approved `release` environment publishes the asset. The
-first stable release tag will be `v0.1.0`.
+A push to protected `main` automatically evaluates Conventional Commit messages.
+`fix` releases a patch, `feat` releases a minor, and `!` or `BREAKING CHANGE:`
+releases a major; valid `build`, `chore`, `ci`, `docs`, `refactor`, `style`, and
+`test` commits do not publish a release on their own. GitVersion calculates from
+the immutable `v1.0.2` baseline, a read-only job packages the exact triggering
+commit, and only the `release` environment publishing job may create the tag and
+GitHub release. Generated GitHub release notes describe each publication;
+[`CHANGELOG.md`](CHANGELOG.md) remains a curated project overview. See
+[`docs/release-operations.md`](docs/release-operations.md) for repository
+controls, recovery, and rollback.
 
 ## Contributing
 
