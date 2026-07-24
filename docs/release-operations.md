@@ -7,8 +7,9 @@ canonical squash-merge commit message as the release input:
 - `feat` creates a minor release.
 - `!` after a type or scope, or a `BREAKING CHANGE:` footer, creates a major release.
 - Valid `build`, `chore`, `ci`, `docs`, `refactor`, `style`, and `test` commits do
-  not independently publish a release. They remain in the generated-notes range
-  until a later qualifying change is released.
+  not independently publish a release. Their workflow run ends successfully
+  without an archive, tag, or GitHub release, and they remain in the
+  generated-notes range until a later qualifying change is released.
 
 The immutable `v1.0.2` tag is the current baseline. The next qualifying stable
 release is calculated from that tag; maintainers must never move, delete, or

@@ -54,7 +54,7 @@
 
 ## 8. Sign and attest release outputs
 
-- [ ] 8.1 Extend the protected `release` environment contract for a dedicated release GPG key and add the least-privilege GitHub Attestations permissions.
-- [ ] 8.2 Create a cryptographically signed annotated tag from the exact planned SHA and fail closed if an existing expected tag does not verify with the release key.
-- [ ] 8.3 Produce SHA-256 checksums and detached GPG signatures for the release archive and checksum manifest, then upload all of them without replacement.
-- [ ] 8.4 Attest the versioned archive with GitHub build provenance and document verification, key rotation, and recovery procedures.
+- [x] 8.1 Extend the protected `release` environment contract for a dedicated release GPG key and add the least-privilege GitHub Attestations permissions.
+- [x] 8.2 Create a cryptographically signed annotated tag from the exact planned SHA and fail closed if an existing expected tag does not verify with the release key.
+- [x] 8.3 Produce SHA-256 checksums and detached GPG signatures for the release archive and checksum manifest, then upload all of them without replacement.
+- [x] 8.4 Attest the versioned archive with GitHub build provenance and document verification, key rotation, and recovery procedures.
