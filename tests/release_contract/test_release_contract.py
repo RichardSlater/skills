@@ -94,7 +94,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("RELEASE_GPG_PASSPHRASE", workflow)
         self.assertIn("RELEASE_GPG_KEY_ID", workflow)
         self.assertIn("git tag -s", workflow)
-        self.assertIn("sha256sum", workflow)
+        self.assertIn('archive_name="$(basename "$ARCHIVE")"', workflow)
+        self.assertIn('sha256sum "$archive_name"', workflow)
+        self.assertNotIn('sha256sum "$ARCHIVE" > "$checksum"', workflow)
         self.assertIn("git verify-tag", workflow)
 
 
