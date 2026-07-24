@@ -1,0 +1,6 @@
+# ClusterFuzzLite project configuration
+# https://google.github.io/clusterfuzzlite/reference/project_yaml/
+
+language: python
+sanitizers:
+  - address

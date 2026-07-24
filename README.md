@@ -96,6 +96,7 @@ The remediation skill is intentionally review-based. It applies approved file ch
 - [Governance](GOVERNANCE.md) explains project roles and decision-making.
 - [Roadmap](ROADMAP.md) describes the next year's security-focused priorities.
 - [Security policy](SECURITY.md) explains private reporting and GitHub-based response handling.
+- [Risk management](docs/RISK_MANAGEMENT.md) documents security trade-offs and acceptance rationale.
 - [Support](SUPPORT.md) explains how to get non-security help.
 
 ## Releases

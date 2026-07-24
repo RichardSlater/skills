@@ -21,3 +21,7 @@ repos:
     rev: v0.45.0
     hooks:
       - id: markdownlint
+        # OpenSpec-generated specs use a fixed template layout (WHEN/THEN
+        # scenario lists that are intentionally not surrounded by blank lines).
+        # Linting them produces noise without value, so exclude the whole tree.
+        exclude: ^openspec/
