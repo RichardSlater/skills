@@ -1,0 +1,76 @@
+name: Scorecard pull request summary
+
+on:
+  workflow_run:
+    workflows: [Scorecard pull request analysis]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.pull_requests[0].number != null
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download Scorecard report
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          github-token: ${{ github.token }}
+          name: scorecard-pr-sarif
+          path: ${{ runner.temp }}/scorecard
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Render sanitized summary
+        env:
+          REPORT: ${{ runner.temp }}/scorecard/results.sarif
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+
+          report = json.load(open(os.environ["REPORT"], encoding="utf-8"))
+          results = report.get("runs", [{}])[0].get("results", [])
+          checks = []
+          for result in results:
+              name = re.sub(r"[^A-Za-z0-9_.-]", "?", str(result.get("ruleId", "unknown")))
+              score = result.get("properties", {}).get("score", "n/a")
+              try:
+                  score = f"{float(score):.1f}/10"
+              except (TypeError, ValueError):
+                  score = "n/a"
+              checks.append((name, score))
+          lines = [
+              "<!-- scorecard-pr-summary -->",
+              "## OpenSSF Scorecard summary",
+              "",
+              "| Check | Score |",
+              "| --- | ---: |",
+          ]
+          lines.extend(f"| {name} | {score} |" for name, score in sorted(checks))
+          with open("comment.json", "w", encoding="utf-8") as handle:
+              json.dump({"body": "\n".join(lines)}, handle)
+          PY
+
+      - name: Create or update pull request comment
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          marker='<!-- scorecard-pr-summary -->'
+          comment_id="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1)"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$comment_id" --input comment.json >/dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" --input comment.json >/dev/null
+          fi
