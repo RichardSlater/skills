@@ -30,22 +30,22 @@ jobs:
           import re
 
           report = json.load(open("results.sarif", encoding="utf-8"))
-          results = report.get("runs", [{}])[0].get("results", [])
-          checks = []
-          for result in results:
-              name = re.sub(r"[^A-Za-z0-9_.-]", "?", str(result.get("ruleId", "unknown")))
-              score = result.get("properties", {}).get("score", "n/a")
-              try:
-                  score = f"{float(score):.1f}/10"
-              except (TypeError, ValueError):
-                  score = "n/a"
-              checks.append((name, score))
+          checks = {}
+          for run in report.get("runs", []):
+              for result in run.get("results", []):
+                  name = re.sub(r"[^A-Za-z0-9_.-]", "?", str(result.get("ruleId", "unknown")))
+                  message = str(result.get("message", {}).get("text", ""))
+                  match = re.search(r"\bscore is ([0-9]+(?:\.[0-9]+)?)\b", message, re.IGNORECASE)
+                  checks[name] = f"{float(match.group(1)):.1f}/10" if match else "n/a"
           print("## OpenSSF Scorecard")
           print()
-          print("| Check | Score |")
-          print("| --- | ---: |")
-          for name, score in sorted(checks):
-              print(f"| {name} | {score} |")
+          if checks:
+              print("| Reported check | Score |")
+              print("| --- | ---: |")
+              for name, score in sorted(checks.items()):
+                  print(f"| {name} | {score} |")
+          else:
+              print("Scorecard reported no failing checks for this pull request.")
           PY
 
       - name: Upload Scorecard report
