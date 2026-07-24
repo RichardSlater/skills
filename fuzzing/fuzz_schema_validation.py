@@ -85,7 +85,7 @@ def fuzz_validate_schema(data: bytes) -> None:
 if __name__ == '__main__':
     try:
         import atheris
-        atheris.instrument()
+        atheris.instrument_all()
         atheris.Setup([], fuzz_validate_schema)
         atheris.Fuzz()
     except ImportError:

@@ -88,7 +88,7 @@ def fuzz_path_handling(data: bytes) -> None:
 if __name__ == '__main__':
     try:
         import atheris
-        atheris.instrument()
+        atheris.instrument_all()
         atheris.Setup([], fuzz_path_handling)
         atheris.Fuzz()
     except ImportError:

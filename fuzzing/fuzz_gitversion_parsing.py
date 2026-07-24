@@ -55,7 +55,7 @@ if __name__ == '__main__':
     import atheris
     # Try to import atheris for ClusterFuzzLite integration
     try:
-        atheris.instrument()
+        atheris.instrument_all()
         atheris.Setup([], fuzz_parse_gitversion)
         atheris.Fuzz()
     except ImportError:

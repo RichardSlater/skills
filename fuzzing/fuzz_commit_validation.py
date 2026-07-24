@@ -61,7 +61,7 @@ def fuzz_validate_commit_message(data: bytes) -> None:
 if __name__ == '__main__':
     try:
         import atheris
-        atheris.instrument()
+        atheris.instrument_all()
         atheris.Setup([], fuzz_validate_commit_message)
         atheris.Fuzz()
     except ImportError:
