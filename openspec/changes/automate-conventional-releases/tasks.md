@@ -47,7 +47,7 @@
 
 - [x] 7.1 Add static workflow assertions that workflow permissions are empty, read-only jobs have only `contents: read`, and only the publishing job has `contents: write`.
 - [x] 7.2 Run repository tests, actionlint, dependency/security checks, and Conventional Commit/GitVersion fixtures against the completed workflow changes.
-- [ ] 7.3 Verify repository ruleset evidence for required pull-request validation, squash merging, protected `v*` tag creation, immutable tags, and the trusted publishing actor.
+- [x] 7.3 Verify repository ruleset evidence for required pull-request validation, squash merging, protected `v*` tag creation, immutable tags, and the trusted publishing actor.
 - [x] 7.4 Run a non-mutating rehearsal on current `main` and inspect the calculated version, no-release/release decision, exact SHA, archive contents, generated-note range, and effective job permissions.
 - [ ] 7.5 Enable automatic publication only after the rehearsal and repository-setting checks pass, then verify a non-releasing change produces no tag and a qualifying change produces one correctly targeted release.
 - [x] 7.6 Confirm rollback can disable the automatic trigger and restore manual dispatch without deleting or moving any published tag.
