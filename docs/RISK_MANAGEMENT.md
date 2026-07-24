@@ -15,6 +15,7 @@ These choices accept lower OpenSSF Scorecard scores where practical constraints 
 **Rationale:** This is a single-maintainer repository. The OpenSSF Code-Review check requires that approximately the last 30 merged changesets have human approval reviews. With only one active contributor, requiring independent review is operationally infeasible.
 
 **Mitigating controls:**
+
 - Strict **Conventional Commit** enforcement via CI prevents accidental or malformed merges
 - **CodeQL SAST** runs on every PR and push, providing automated security analysis
 - **Scorecard supply-chain analysis** runs weekly to detect workflow regressions
@@ -50,6 +51,7 @@ These choices accept lower OpenSSF Scorecard scores where practical constraints 
 **Decision:** Not pursued.
 
 **Rationale:** The skills framework installs skills directly from the GitHub repository using `npx skills add`. There is no value in publishing to an npm registry or GitHub Packages because:
+
 - Skills are cloned, not imported as libraries
 - Users need the full directory structure, documentation, and scripts
 - The skills CLI handles version resolution via git tags
@@ -67,6 +69,7 @@ Publishing to a package hub would add operational complexity without reducing se
 **Current state:** 3 of 5 recent releases have signed artifacts. 2 older releases (`v1.1.0`, `v1.0.2-beta0`) have unsigned `.zip` only. All releases lack detected provenance attestations.
 
 **Planned work:**
+
 - Fix `actions/attest-build-provenance` configuration so Scorecard detects attestations properly
 - Delete unsigned release artifacts from `v1.1.0` and `v1.0.2-beta0` to eliminate ambiguity
 - Ensure future releases consistently produce both GPG signatures and build provenance attestations
@@ -80,6 +83,7 @@ Publishing to a package hub would add operational complexity without reducing se
 **Current state:** CodeQL runs on PR and push to `main`, but is not a **required** status check in the branch protection ruleset. 6 of 26 recent commits were merged without CodeQL analysis.
 
 **Planned work:**
+
 - Add CodeQL analysis as a required status check in the branch protection ruleset for `main`
 - This ensures every merged commit has been analyzed for vulnerabilities
 
@@ -92,11 +96,13 @@ Publishing to a package hub would add operational complexity without reducing se
 **Current state:** No fuzzing infrastructure.
 
 **Planned work:**
+
 - Add ClusterFuzzLite workflow for Python fuzzing
 - Create fuzz targets for critical input-parsing functions: GitVersion parsing, Conventional Commit validation, proposal schema validation, artifact packaging
 - Schedule continuous fuzzing via GitHub Actions
 
 **Security value:** Fuzzing is particularly valuable for this repository because:
+
 - Scripts parse untrusted input (Conventional Commit messages, GitVersion output, project schemas)
 - File path handling and archive creation could be vulnerable to injection or traversal attacks
 - Automated fuzzing catches edge cases that manual testing misses
@@ -110,6 +116,7 @@ ClusterFuzzLite is the lightweight option that integrates directly with GitHub A
 **Current state:** Passing badge achieved.
 
 **Planned work:**
+
 - Review Silver criteria and identify achievable improvements
 - Enhance vulnerability response documentation (response time guarantees, version support matrix)
 - Improve security review practices documentation
@@ -124,6 +131,7 @@ ClusterFuzzLite is the lightweight option that integrates directly with GitHub A
 **Current state:** Ruleset requires 1 reviewer, but this is symbolic for a single-maintainer project.
 
 **Planned work:**
+
 - Increase required reviewers to **2** where feasible (enables contribution from others when they occur)
 - Ensure **no bypass actors** are configured (Scorecard deducts points if any bypass exists)
 - Keep all other Tier 4/5 requirements active
@@ -151,6 +159,7 @@ ClusterFuzzLite is the lightweight option that integrates directly with GitHub A
 ## Governance
 
 This document is reviewed biannually alongside the [Security Policy](../SECURITY.md) and [Roadmap](../ROADMAP.md). Changes require:
+
 - Update to this document explaining the rationale
 - Update to `.bestpractices.json` if the change affects badge answers
 - PR review and merging following the same controls documented here
