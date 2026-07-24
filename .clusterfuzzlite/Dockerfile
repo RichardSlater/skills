@@ -4,9 +4,6 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder-python
 
-COPY . $SRC/skills
-WORKDIR $SRC/skills
-
-RUN pip3 install atheris
-
-COPY fuzzing/ $SRC/skills/fuzzing/
+COPY . $SRC/
+COPY .clusterfuzzlite/build.sh $SRC/build.sh
+RUN chmod +x $SRC/build.sh
