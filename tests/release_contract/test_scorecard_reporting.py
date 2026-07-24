@@ -18,15 +18,16 @@ class ScorecardReportingTests(unittest.TestCase):
         self.assertIn("contents: read", workflow)
         self.assertNotIn("pull-requests: write", workflow)
         self.assertIn("GITHUB_STEP_SUMMARY", workflow)
-        self.assertIn("scorecard-pr-sarif", workflow)
+        self.assertIn("scorecard-pr-json", workflow)
+        self.assertIn("results_format: json", workflow)
 
-    def test_scorecard_renderers_include_results_from_every_sarif_run(self) -> None:
+    def test_scorecard_renderers_include_full_json_breakdown(self) -> None:
         for workflow_path in (ANALYSIS, COMMENT):
             workflow = workflow_path.read_text(encoding="utf-8")
-            self.assertIn('for run in report.get("runs", []):', workflow)
-            self.assertIn('for result in run.get("results", []):', workflow)
-            self.assertIn('score is ([0-9]+(?:\\.[0-9]+)?)', workflow)
-            self.assertIn("Scorecard reported no failing checks", workflow)
+            self.assertIn('for check in report.get("checks", []):', workflow)
+            self.assertIn("format_score", workflow)
+            self.assertIn("Overall score", workflow)
+            self.assertIn("Scorecard returned no check breakdown", workflow)
 
     def test_commenter_has_narrow_permissions_and_no_checkout(self) -> None:
         workflow = COMMENT.read_text(encoding="utf-8")
@@ -34,7 +35,8 @@ class ScorecardReportingTests(unittest.TestCase):
         self.assertIn("actions: read", workflow)
         self.assertIn("pull-requests: write", workflow)
         self.assertNotIn("actions/checkout", workflow)
-        self.assertIn("scorecard-pr-sarif", workflow)
+        self.assertIn("scorecard-pr-json", workflow)
+        self.assertIn("results.json", workflow)
         self.assertIn("scorecard-pr-summary", workflow)
 
 

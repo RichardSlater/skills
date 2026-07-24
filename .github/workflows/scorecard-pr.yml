@@ -19,8 +19,8 @@ jobs:
       - name: Run OpenSSF Scorecard
         uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
         with:
-          results_file: results.sarif
-          results_format: sarif
+          results_file: results.json
+          results_format: json
           publish_results: false
 
       - name: Render Scorecard summary
@@ -29,29 +29,37 @@ jobs:
           import json
           import re
 
-          report = json.load(open("results.sarif", encoding="utf-8"))
-          checks = {}
-          for run in report.get("runs", []):
-              for result in run.get("results", []):
-                  name = re.sub(r"[^A-Za-z0-9_.-]", "?", str(result.get("ruleId", "unknown")))
-                  message = str(result.get("message", {}).get("text", ""))
-                  match = re.search(r"\bscore is ([0-9]+(?:\.[0-9]+)?)\b", message, re.IGNORECASE)
-                  checks[name] = f"{float(match.group(1)):.1f}/10" if match else "n/a"
+          report = json.load(open("results.json", encoding="utf-8"))
+
+          def format_score(value):
+              try:
+                  score = float(value)
+              except (TypeError, ValueError):
+                  return "N/A"
+              return f"{score:.1f}/10" if 0 <= score <= 10 else "N/A"
+
+          checks = []
+          for check in report.get("checks", []):
+              name = re.sub(r"[^A-Za-z0-9 ._-]", "?", str(check.get("name", "unknown")))
+              checks.append((name, format_score(check.get("score"))))
+
           print("## OpenSSF Scorecard")
           print()
+          print(f"**Overall score:** {format_score(report.get('score'))}")
+          print()
           if checks:
-              print("| Reported check | Score |")
+              print("| Check | Score |")
               print("| --- | ---: |")
-              for name, score in sorted(checks.items()):
+              for name, score in sorted(checks):
                   print(f"| {name} | {score} |")
           else:
-              print("Scorecard reported no failing checks for this pull request.")
+              print("Scorecard returned no check breakdown.")
           PY
 
       - name: Upload Scorecard report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: scorecard-pr-sarif
-          path: results.sarif
+          name: scorecard-pr-json
+          path: results.json
           if-no-files-found: error
           retention-days: 1
