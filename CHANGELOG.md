@@ -1,6 +1,6 @@
 # Changelog
 
-This project is continuously delivered from the default branch. Each delivered state is identified by its Git commit SHA. Versioned GitHub releases use protected `v{major}.{minor}.{patch}` tags on commits reachable from `main`; GitVersion derives and verifies the release version, a read-only job packages the archive, and an approved environment publishes it. The first stable release tag will be `v0.1.0`.
+This project is continuously delivered from the default branch. Each delivered state is identified by its Git commit SHA. Protected `v{major}.{minor}.{patch}` releases are calculated automatically from Conventional Commits on `main`, beginning from the immutable `v1.0.2` baseline. `fix`, `feat`, and breaking changes release; valid maintenance-only commit types do not. GitHub-generated release notes are the publication record; this file is a curated project overview and is not edited by the release workflow.
 
 Security fixes are called out explicitly and include the affected behavior and recommended user action. See the Git history and merged pull requests for the complete change record.
 

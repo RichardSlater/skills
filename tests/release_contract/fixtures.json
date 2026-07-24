@@ -1,0 +1,14 @@
+[
+  {"name": "unscoped fix", "messages": ["fix: handle empty manifest"], "increment": "patch", "valid": true},
+  {"name": "scoped fix", "messages": ["fix(parser): handle empty manifest"], "increment": "patch", "valid": true},
+  {"name": "unscoped feature", "messages": ["feat: add release validator"], "increment": "minor", "valid": true},
+  {"name": "scoped feature", "messages": ["feat(skills): add release validator"], "increment": "minor", "valid": true},
+  {"name": "header breaking change", "messages": ["feat(api)!: remove legacy endpoint"], "increment": "major", "valid": true},
+  {"name": "footer breaking change", "messages": ["docs: describe migration\n\nBREAKING CHANGE: configuration names changed"], "increment": "major", "valid": true},
+  {"name": "breaking non-release type", "messages": ["chore!: remove unsupported runner"], "increment": "major", "valid": true},
+  {"name": "non-releasing types", "messages": ["chore: refresh metadata", "docs: clarify examples", "test: expand coverage", "build: refresh tooling", "ci: use pinned action", "refactor: simplify parser", "style: format markdown"], "increment": null, "valid": true},
+  {"name": "malformed header", "messages": ["Fix parser"], "increment": null, "valid": false},
+  {"name": "missing description", "messages": ["feat:"], "increment": null, "valid": false},
+  {"name": "mixed precedence", "messages": ["fix: one", "feat: two", "chore!: three"], "increment": "major", "valid": true},
+  {"name": "non-releasing retained", "messages": ["docs: explain setup", "chore: refresh metadata", "feat: add validator"], "increment": "minor", "valid": true, "included_messages": ["docs: explain setup", "chore: refresh metadata", "feat: add validator"]}
+]

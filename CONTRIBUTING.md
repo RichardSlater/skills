@@ -17,6 +17,21 @@ Thank you for improving this skills repository.
 5. Add or update automated tests for behavior changes. Changes that cannot be tested automatically must explain why in the pull request.
 6. Open a pull request using the template and include validation evidence.
 
+## Conventional Commit and squash-merge policy
+
+Pull requests must have a Conventional Commit title because the canonical squash
+commit on `main` is the release input. Use `type(scope optional)!: description`.
+`fix` creates a patch release, `feat` creates a minor release, and `!` or a
+`BREAKING CHANGE:` footer creates a major release. Examples:
+
+- `fix(parser): handle an empty manifest`
+- `feat(skills): add a validator`
+- `feat!: remove the legacy configuration`
+
+Other valid types (`build`, `chore`, `ci`, `docs`, `refactor`, `style`, and
+`test`) do not independently release. Use squash merging so the checked pull
+request title becomes the commit message on `main`.
+
 ## Validation commands
 
 Install the system-managed [pre-commit](https://pre-commit.com/) command, then

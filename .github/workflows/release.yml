@@ -1,113 +1,173 @@
 name: Publish release
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Existing protected v{major}.{minor}.{patch} tag to release
-        required: true
-        type: string
-      pre_release:
-        description: Publish as v{major}.{minor}.{patch}-beta0
-        required: false
-        default: false
-        type: boolean
+  push:
+    branches: [main]
+
+# One run observes and mutates release state at a time. Runs must never cancel
+# each other because every release is bound to its triggering commit.
+concurrency:
+  group: automated-release-main
+  cancel-in-progress: false
 
 permissions: {}
 
 jobs:
-  package:
-    if: github.ref == 'refs/heads/main'
+  plan-package:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
       archive: ${{ steps.package.outputs.archive }}
-      pre_release: ${{ steps.verify.outputs.pre_release }}
-      tag: ${{ steps.verify.outputs.tag }}
-      tag_sha: ${{ steps.verify.outputs.tag_sha }}
+      previous_tag: ${{ steps.plan.outputs.previous_tag }}
+      release_required: ${{ steps.plan.outputs.release_required }}
+      semver: ${{ steps.plan.outputs.semver }}
+      sha: ${{ steps.plan.outputs.sha }}
+      tag: ${{ steps.plan.outputs.tag }}
     steps:
-      - name: Checkout release tag
+      - name: Checkout triggering commit with complete history
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify release tag
-        id: verify
+      - name: Set up GitVersion
+        uses: gittools/actions/gitversion/setup@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+        with:
+          versionSpec: 6.3.x
+
+      - name: Calculate version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@7417b1089e2c7de93510f1901d656ddf60bb024f # v4.7.0
+
+      - name: Validate plan and release signal
+        id: plan
         env:
-          PRE_RELEASE: ${{ inputs.pre_release }}
-          TAG: ${{ inputs.tag }}
+          GITVERSION_SEMVER: ${{ steps.gitversion.outputs.MajorMinorPatch }}
+          SHA: ${{ github.sha }}
         run: |
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must use v{major}.{minor}.{patch}." >&2
+          set -euo pipefail
+          semver="$GITVERSION_SEMVER"
+          if [[ ! "$semver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "GitVersion returned an invalid stable SemVer: $semver" >&2
             exit 1
           fi
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          tag_sha="$(git rev-parse "$TAG^{commit}")"
-          git merge-base --is-ancestor "$tag_sha" origin/main
-          semver="${TAG#v}"
-          if [[ "$PRE_RELEASE" == "true" ]]; then
-            semver="${semver}-beta0"
+          tag="v$semver"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          previous_tag="$(git tag --merged "$SHA" --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+          range="$SHA"
+          if [[ -n "$previous_tag" ]]; then range="$previous_tag..$SHA"; fi
+          messages="$(git log --format=%B "$range")"
+          release_required=false
+          if grep -Eq '^[a-z][a-z0-9-]*(\([^)[:cntrl:]]+\))?!: .+$|^BREAKING CHANGE: .+$|^feat(\([^)[:cntrl:]]+\))?: .+$|^fix(\([^)[:cntrl:]]+\))?: .+$' <<<"$messages"; then
+            release_required=true
           fi
-          echo "pre_release=$PRE_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "tag=v$semver" >> "$GITHUB_OUTPUT"
-          echo "tag_sha=$tag_sha" >> "$GITHUB_OUTPUT"
-          echo "semver=$semver" >> "$GITHUB_OUTPUT"
+          printf 'semver=%s\ntag=%s\nprevious_tag=%s\nrelease_required=%s\nsha=%s\n' \
+            "$semver" "$tag" "$previous_tag" "$release_required" "$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Package skills
+        if: steps.plan.outputs.release_required == 'true'
         id: package
         env:
-          SEMVER: ${{ steps.verify.outputs.semver }}
+          SEMVER: ${{ steps.plan.outputs.semver }}
         run: |
+          set -euo pipefail
           archive="skills-${SEMVER}.zip"
           files=(skills README.md LICENSE CONTRIBUTING.md SECURITY.md SUPPORT.md)
           for optional_file in GOVERNANCE.md ROADMAP.md; do
-            if [[ -f "$optional_file" ]]; then
-              files+=("$optional_file")
-            fi
+            [[ -f "$optional_file" ]] && files+=("$optional_file")
           done
           zip -r "$archive" "${files[@]}"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload release archive
+        if: steps.plan.outputs.release_required == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-archive
+          name: release-archive-${{ github.run_id }}
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
           retention-days: 1
 
+      - name: Report no-release decision
+        if: steps.plan.outputs.release_required != 'true'
+        run: echo "No Conventional Commit release signal exists in the unreleased range."
+
   publish:
-    needs: package
+    needs: plan-package
+    if: needs.plan-package.outputs.release_required == 'true'
     runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: write
     steps:
-      - name: Download release archive
+      - name: Download prepared archive
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: release-archive
+          name: release-archive-${{ github.run_id }}
           path: ${{ runner.temp }}/release
 
-      - name: Publish GitHub release
+      - name: Mint publishing app token
+        id: release-app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.1.4
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Revalidate and publish immutable release
         env:
+          ARCHIVE: ${{ runner.temp }}/release/${{ needs.plan-package.outputs.archive }}
           GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-          ARCHIVE: ${{ runner.temp }}/release/${{ needs.package.outputs.archive }}
-          PRE_RELEASE: ${{ needs.package.outputs.pre_release }}
-          TAG: ${{ needs.package.outputs.tag }}
-          TAG_SHA: ${{ needs.package.outputs.tag_sha }}
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          PREVIOUS_TAG: ${{ needs.plan-package.outputs.previous_tag }}
+          SEMVER: ${{ needs.plan-package.outputs.semver }}
+          SHA: ${{ needs.plan-package.outputs.sha }}
+          TAG: ${{ needs.plan-package.outputs.tag }}
         run: |
+          set -euo pipefail
           test -f "$ARCHIVE"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists; refusing to replace its assets." >&2
+          [[ "$SEMVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TAG" == "v$SEMVER" ]]
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          # This API check does not require checkout or execution of repository code.
+          status="$(gh api "repos/$GH_REPO/compare/$SHA...main" --jq .status)"
+          if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
+            echo "Planned SHA is no longer reachable from main." >&2
             exit 1
           fi
-          release_args=("$TAG" "$ARCHIVE" --target "$TAG_SHA" --title "$TAG" --generate-notes)
-          if [[ "$PRE_RELEASE" == "true" ]]; then
-            release_args+=(--prerelease)
+          tag_exists=false
+          release_exists=false
+          tag_sha=""
+          if tag_ref="$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" 2>/dev/null)"; then
+            tag_exists=true
+            object_type="$(jq -r '.object.type' <<<"$tag_ref")"
+            object_sha="$(jq -r '.object.sha' <<<"$tag_ref")"
+            if [[ "$object_type" == "tag" ]]; then
+              tag_sha="$(gh api "repos/$GH_REPO/git/tags/$object_sha" --jq .object.sha)"
+            else
+              tag_sha="$object_sha"
+            fi
+            if [[ "$tag_sha" != "$SHA" ]]; then
+              echo "Existing $TAG points to another commit; refusing to move it." >&2
+              exit 1
+            fi
           fi
-          gh release create "${release_args[@]}"
+          if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then release_exists=true; fi
+          if [[ "$release_exists" == true && "$tag_exists" == false ]]; then
+            echo "A release exists without its expected immutable tag; refusing to continue." >&2
+            exit 1
+          fi
+          if [[ "$tag_exists" == false ]]; then
+            annotated_tag="$(gh api --method POST "repos/$GH_REPO/git/tags" \
+              -f tag="$TAG" -f message="Release $TAG" -f object="$SHA" -f type=commit --jq .sha)"
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$annotated_tag" >/dev/null
+          fi
+          if [[ "$release_exists" == true ]]; then
+            echo "Release $TAG is already complete; assets will not be replaced."
+            exit 0
+          fi
+          args=("$TAG" "$ARCHIVE" --repo "$GH_REPO" --title "$TAG" --target "$SHA" --generate-notes)
+          [[ -n "$PREVIOUS_TAG" ]] && args+=(--notes-start-tag "$PREVIOUS_TAG")
+          gh release create "${args[@]}"
