@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      attestations: write
+      id-token: write
     outputs:
       archive: ${{ steps.package.outputs.archive }}
       previous_tag: ${{ steps.plan.outputs.previous_tag }}
@@ -82,6 +84,12 @@ jobs:
           zip -r "$archive" "${files[@]}"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Attest release archive
+        if: steps.plan.outputs.release_required == 'true'
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
       - name: Upload release archive
         if: steps.plan.outputs.release_required == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -116,11 +124,22 @@ jobs:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Revalidate and publish immutable release
+      - name: Checkout planned commit for tag signing
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.plan-package.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ steps.release-app-token.outputs.token }}
+
+      - name: Sign and publish immutable release
         env:
           ARCHIVE: ${{ runner.temp }}/release/${{ needs.plan-package.outputs.archive }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+          RELEASE_GPG_KEY_ID: ${{ vars.RELEASE_GPG_KEY_ID }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
           PREVIOUS_TAG: ${{ needs.plan-package.outputs.previous_tag }}
           SEMVER: ${{ needs.plan-package.outputs.semver }}
           SHA: ${{ needs.plan-package.outputs.sha }}
@@ -129,6 +148,17 @@ jobs:
           set -euo pipefail
           test -f "$ARCHIVE"
           [[ "$SEMVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          export GNUPGHOME="$RUNNER_TEMP/release-gnupg"
+          install -d -m 700 "$GNUPGHOME"
+          printf '%s' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg_fingerprint="$(gpg --batch --with-colons --list-secret-keys "$RELEASE_GPG_KEY_ID" | awk -F: '$1 == "fpr" { print $10; exit }')"
+          [[ "$gpg_fingerprint" =~ ^[A-F0-9]{40}$ ]]
+          checksum="${ARCHIVE}.sha256"
+          sha256sum "$ARCHIVE" > "$checksum"
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$RELEASE_GPG_PASSPHRASE" \
+            --local-user "$gpg_fingerprint" --armor --detach-sign --output "${ARCHIVE}.asc" "$ARCHIVE"
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$RELEASE_GPG_PASSPHRASE" \
+            --local-user "$gpg_fingerprint" --armor --detach-sign --output "${checksum}.asc" "$checksum"
           [[ "$TAG" == "v$SEMVER" ]]
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
           # This API check does not require checkout or execution of repository code.
@@ -160,14 +190,20 @@ jobs:
             exit 1
           fi
           if [[ "$tag_exists" == false ]]; then
-            annotated_tag="$(gh api --method POST "repos/$GH_REPO/git/tags" \
-              -f tag="$TAG" -f message="Release $TAG" -f object="$SHA" -f type=commit --jq .sha)"
-            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$annotated_tag" >/dev/null
+            git config user.name "Skills Release"
+            git config user.email "git@scetrov.live"
+            git tag -s -u "$gpg_fingerprint" -m "Release $TAG" "$TAG" "$SHA"
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
+            git push origin "refs/tags/$TAG"
+          else
+            git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
           fi
+          verification="$(git verify-tag --raw "$TAG" 2>&1)"
+          grep -F "VALIDSIG $gpg_fingerprint" <<< "$verification"
           if [[ "$release_exists" == true ]]; then
             echo "Release $TAG is already complete; assets will not be replaced."
             exit 0
           fi
-          args=("$TAG" "$ARCHIVE" --repo "$GH_REPO" --title "$TAG" --target "$SHA" --generate-notes)
+          args=("$TAG" "$ARCHIVE" "$checksum" "${ARCHIVE}.asc" "${checksum}.asc" --repo "$GH_REPO" --title "$TAG" --target "$SHA" --generate-notes)
           [[ -n "$PREVIOUS_TAG" ]] && args+=(--notes-start-tag "$PREVIOUS_TAG")
           gh release create "${args[@]}"
