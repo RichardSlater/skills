@@ -199,7 +199,12 @@ jobs:
             git fetch origin "refs/tags/$TAG:refs/tags/$TAG"
           fi
           verification="$(git verify-tag --raw "$TAG" 2>&1)"
-          grep -F "VALIDSIG $gpg_fingerprint" <<< "$verification"
+          # GPG may use a signing subkey. VALIDSIG's optional final field is
+          # its primary-key fingerprint, so accept that or a primary-key signature.
+          awk -v primary_fingerprint="$gpg_fingerprint" '
+            $1 == "[GNUPG:]" && $2 == "VALIDSIG" && ($3 == primary_fingerprint || $NF == primary_fingerprint) { valid = 1 }
+            END { exit !valid }
+          ' <<< "$verification"
           if [[ "$release_exists" == true ]]; then
             echo "Release $TAG is already complete; assets will not be replaced."
             exit 0
