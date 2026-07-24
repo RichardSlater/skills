@@ -153,8 +153,13 @@ jobs:
           printf '%s' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
           gpg_fingerprint="$(gpg --batch --with-colons --list-secret-keys "$RELEASE_GPG_KEY_ID" | awk -F: '$1 == "fpr" { print $10; exit }')"
           [[ "$gpg_fingerprint" =~ ^[A-F0-9]{40}$ ]]
+          archive_dir="$(dirname "$ARCHIVE")"
+          archive_name="$(basename "$ARCHIVE")"
           checksum="${ARCHIVE}.sha256"
-          sha256sum "$ARCHIVE" > "$checksum"
+          (
+            cd "$archive_dir"
+            sha256sum "$archive_name" > "$(basename "$checksum")"
+          )
           gpg --batch --yes --pinentry-mode loopback --passphrase "$RELEASE_GPG_PASSPHRASE" \
             --local-user "$gpg_fingerprint" --armor --detach-sign --output "${ARCHIVE}.asc" "$ARCHIVE"
           gpg --batch --yes --pinentry-mode loopback --passphrase "$RELEASE_GPG_PASSPHRASE" \

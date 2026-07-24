@@ -47,8 +47,12 @@ retiring the old public key.
 4. If both tag and release exist, treat the run as complete only when the tag
    verifies with the configured release key; assets are never replaced.
 5. Each release publishes the ZIP, its `.sha256` manifest, and detached `.asc`
-   signatures for both. GitHub also records build provenance for the ZIP. Verify
-   the checksum, then verify both detached signatures with the published key.
+   signatures for both. GitHub also records build provenance for the ZIP. After
+   downloading the assets, verify them with `sha256sum --check skills-VERSION.zip.sha256`,
+   then use `gpg --verify` for both detached signatures with the published key.
+   The immutable `v1.1.1` through `v1.1.4` manifests contain a transient runner
+   path and cannot be checked after download; verify their ZIP detached signature
+   directly instead. Do not replace these immutable assets.
 6. If a tag targets another SHA, does not verify, or release state conflicts,
    stop and investigate. Never delete, move, or reuse a published tag to recover.
 
