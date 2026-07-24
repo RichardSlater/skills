@@ -86,7 +86,7 @@ if __name__ == '__main__':
     try:
         import atheris
         atheris.instrument_all()
-        atheris.Setup([], fuzz_validate_schema)
+        atheris.Setup(sys.argv, fuzz_validate_schema)
         atheris.Fuzz()
     except ImportError:
         # Fall back to simple testing with stdin
