@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -66,6 +67,13 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("CONVENTIONAL_COMMIT", workflow)
         self.assertIn("feat", workflow)
         self.assertIn("fix", workflow)
+        pattern = next(line.strip() for line in workflow.splitlines() if line.strip().startswith("pattern="))
+        result = subprocess.run(
+            ["bash", "-c", f'{pattern}\n[[ "$CONVENTIONAL_COMMIT" =~ $pattern ]]'],
+            check=False,
+            env={"CONVENTIONAL_COMMIT": "feat(release): automate conventional releases"},
+        )
+        self.assertEqual(result.returncode, 0)
 
     def test_release_workflow_keeps_read_and_write_boundaries(self) -> None:
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")

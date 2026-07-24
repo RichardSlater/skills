@@ -16,6 +16,7 @@ Publishing a release currently requires a maintainer to calculate a version, cre
 ## Capabilities
 
 ### New Capabilities
+
 - `automated-conventional-releases`: Determines SemVer releases from Conventional Commits on `main` and securely creates the corresponding tag, packaged asset, release notes, and GitHub release.
 
 ### Modified Capabilities
