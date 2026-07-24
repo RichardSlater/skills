@@ -2,7 +2,13 @@
 
 ## Supported versions
 
-This repository is maintained from the default branch. Security fixes are made against the latest default-branch state unless a maintainer explicitly announces a supported release branch.
+This repository is maintained from the default branch. The following versions are supported with security updates:
+
+- **Latest release** — Full support for critical and high severity vulnerabilities
+- **Previous release** — Support for critical severity vulnerabilities only
+- **Older releases** — No guaranteed support; users should upgrade to the latest release
+
+Security fixes are made against the latest default-branch state. When a vulnerability affects older releases, backports may be published for supported versions on a best-effort basis.
 
 ## Reporting a vulnerability
 
@@ -28,6 +34,23 @@ Security-sensitive issues include, but are not limited to:
 - GitHub Actions or dependency supply-chain vulnerabilities.
 - Path traversal, command injection, or unsafe shell execution in scripts.
 - Generated remediation guidance that weakens repository security.
+
+## Vulnerability response SLAs
+
+The maintainer commits to the following response time targets for privately reported vulnerabilities:
+
+| Severity | Initial Response    | Resolution Target       |
+|----------|---------------------|-------------------------|
+| Critical | Within 24 hours     | Fix and advisory within 48 hours |
+| High     | Within 48 hours     | Fix and advisory within 7 days |
+| Medium   | Within 5 days       | Fix and advisory within 30 days |
+| Low      | Within 10 days      | Fix and advisory within 60 days   |
+
+*Initial Response* means acknowledging receipt, confirming the security advisory was received, and requesting any additional information needed to reproduce the issue.
+
+*Resolution* means publishing a fix (patch release or commit), creating a GitHub security advisory, and coordinating public disclosure with the reporter.
+
+These are target SLAs and may vary based on complexity, reporter cooperation, and whether the vulnerability involves third-party dependencies. The maintainer will communicate proactively if timelines need adjustment.
 
 ## GitHub-based response process
 

@@ -84,11 +84,20 @@ jobs:
           zip -r "$archive" "${files[@]}"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Verify archive integrity before attestation
+        if: steps.plan.outputs.release_required == 'true'
+        run: |
+          set -euo pipefail
+          archive="${{ steps.package.outputs.archive }}"
+          sha256sum "$archive"
+
       - name: Attest release archive
         if: steps.plan.outputs.release_required == 'true'
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
         with:
           subject-path: ${{ steps.package.outputs.archive }}
+          # The attestation subject is the artifact's content digest (SHA-256)
+          # which must match the release asset uploaded to GitHub releases
 
       - name: Upload release archive
         if: steps.plan.outputs.release_required == 'true'
