@@ -22,3 +22,36 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: false
+
+      - name: Render Scorecard summary
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import re
+
+          report = json.load(open("results.sarif", encoding="utf-8"))
+          results = report.get("runs", [{}])[0].get("results", [])
+          checks = []
+          for result in results:
+              name = re.sub(r"[^A-Za-z0-9_.-]", "?", str(result.get("ruleId", "unknown")))
+              score = result.get("properties", {}).get("score", "n/a")
+              try:
+                  score = f"{float(score):.1f}/10"
+              except (TypeError, ValueError):
+                  score = "n/a"
+              checks.append((name, score))
+          print("## OpenSSF Scorecard")
+          print()
+          print("| Check | Score |")
+          print("| --- | ---: |")
+          for name, score in sorted(checks):
+              print(f"| {name} | {score} |")
+          PY
+
+      - name: Upload Scorecard report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scorecard-pr-sarif
+          path: results.sarif
+          if-no-files-found: error
+          retention-days: 1
