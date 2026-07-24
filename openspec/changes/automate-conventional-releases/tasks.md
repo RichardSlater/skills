@@ -51,3 +51,10 @@
 - [x] 7.4 Run a non-mutating rehearsal on current `main` and inspect the calculated version, no-release/release decision, exact SHA, archive contents, generated-note range, and effective job permissions.
 - [ ] 7.5 Enable automatic publication only after the rehearsal and repository-setting checks pass, then verify a non-releasing change produces no tag and a qualifying change produces one correctly targeted release.
 - [x] 7.6 Confirm rollback can disable the automatic trigger and restore manual dispatch without deleting or moving any published tag.
+
+## 8. Sign and attest release outputs
+
+- [ ] 8.1 Extend the protected `release` environment contract for a dedicated release GPG key and add the least-privilege GitHub Attestations permissions.
+- [ ] 8.2 Create a cryptographically signed annotated tag from the exact planned SHA and fail closed if an existing expected tag does not verify with the release key.
+- [ ] 8.3 Produce SHA-256 checksums and detached GPG signatures for the release archive and checksum manifest, then upload all of them without replacement.
+- [ ] 8.4 Attest the versioned archive with GitHub build provenance and document verification, key rotation, and recovery procedures.

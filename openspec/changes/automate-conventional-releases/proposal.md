@@ -10,7 +10,7 @@ Publishing a release currently requires a maintainer to calculate a version, cre
 - Automatically create a protected `v{major}.{minor}.{patch}` tag and GitHub release for the exact qualifying commit on `main`, with packaged assets and generated release notes.
 - Validate the Conventional Commit input used for release determination so versioning behavior is predictable.
 - Apply least privilege to GitHub Actions: default to no permissions, keep calculation and packaging read-only, and grant `contents: write` only to the job that creates the tag and release.
-- Preserve release integrity through immutable commit targeting, concurrency control, duplicate checks, pinned actions, and documented repository ruleset requirements.
+- Preserve release integrity through immutable commit targeting, GPG-signed tags and artifacts, GitHub build provenance attestations, concurrency control, duplicate checks, pinned actions, and documented repository ruleset requirements.
 - Replace the existing manual tag-input release documentation with the automated release contract and failure/recovery guidance.
 
 ## Capabilities

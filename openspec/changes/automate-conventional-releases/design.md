@@ -100,7 +100,7 @@ The repository already has immutable `v1.0.0`, `v1.0.1`, and `v1.0.2` tags, so G
 The workflow SHALL declare `permissions: {}` at workflow scope. Jobs use the following permission boundary:
 
 | Job | Permission | Responsibility |
-|---|---|---|
+| --- | --- | --- |
 | plan/package | `contents: read` | Checkout full history, run GitVersion, validate outputs, create archive, upload ephemeral artifact |
 | publish | `contents: write` | Download the prepared artifact, revalidate release state, create tag, generate notes, create GitHub release |
 
@@ -125,7 +125,7 @@ Create an annotated `v{major}.{minor}.{patch}` tag through the GitHub API and th
 Immediately before mutation, the publishing job checks tag and release state:
 
 | Existing state | Behavior |
-|---|---|
+| --- | --- |
 | No tag, no release | Create the tag, then create the release |
 | Tag targets expected SHA, no release | Reuse the immutable tag and create the missing release |
 | Tag and release both exist | Complete as an idempotent no-op; never replace assets |
@@ -144,6 +144,20 @@ Continue using GitHub-generated release notes between the previous and new tags.
 
 - Conventional-changelog would add another parser and release dependency alongside GitVersion.
 - Automatically rewriting the changelog would require committing back to protected `main`, creating recursion and additional write permissions.
+
+### 8. Sign tags and release outputs; attest the archive
+
+The publishing job checks out only the immutable planned SHA without executing
+repository code, imports a dedicated release-only GPG key from the protected
+`release` environment, and creates a signed annotated tag. The GitHub App token
+pushes that tag. The job generates a SHA-256 manifest and detached GPG signatures
+for both the archive and its manifest; it fails closed if a pre-existing expected
+tag does not verify with the configured signing fingerprint.
+
+The read-only planning job receives only `attestations: write` and `id-token:
+write` in addition to `contents: read` so the pinned GitHub action can issue
+build provenance for the versioned archive. Those permissions do not grant
+repository-content mutation.
 
 ## Risks / Trade-offs
 

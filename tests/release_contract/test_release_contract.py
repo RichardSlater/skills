@@ -80,6 +80,9 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("permissions: {}", workflow)
         self.assertIn("contents: read", workflow)
         self.assertIn("contents: write", workflow)
+        self.assertIn("attestations: write", workflow)
+        self.assertIn("id-token: write", workflow)
+        self.assertIn("actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661", workflow)
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("fetch-depth: 0", workflow)
         self.assertIn("actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349", workflow)
@@ -87,6 +90,12 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("secrets.RELEASE_APP_PRIVATE_KEY", workflow)
         self.assertIn("steps.release-app-token.outputs.token", workflow)
         self.assertNotIn("GH_TOKEN: ${{ github.token }}", workflow)
+        self.assertIn("RELEASE_GPG_PRIVATE_KEY", workflow)
+        self.assertIn("RELEASE_GPG_PASSPHRASE", workflow)
+        self.assertIn("RELEASE_GPG_KEY_ID", workflow)
+        self.assertIn("git tag -s", workflow)
+        self.assertIn("sha256sum", workflow)
+        self.assertIn("git verify-tag", workflow)
 
 
 if __name__ == "__main__":
