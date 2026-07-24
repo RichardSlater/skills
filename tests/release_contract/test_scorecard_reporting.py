@@ -20,6 +20,14 @@ class ScorecardReportingTests(unittest.TestCase):
         self.assertIn("GITHUB_STEP_SUMMARY", workflow)
         self.assertIn("scorecard-pr-sarif", workflow)
 
+    def test_scorecard_renderers_include_results_from_every_sarif_run(self) -> None:
+        for workflow_path in (ANALYSIS, COMMENT):
+            workflow = workflow_path.read_text(encoding="utf-8")
+            self.assertIn('for run in report.get("runs", []):', workflow)
+            self.assertIn('for result in run.get("results", []):', workflow)
+            self.assertIn('score is ([0-9]+(?:\\.[0-9]+)?)', workflow)
+            self.assertIn("Scorecard reported no failing checks", workflow)
+
     def test_commenter_has_narrow_permissions_and_no_checkout(self) -> None:
         workflow = COMMENT.read_text(encoding="utf-8")
         self.assertIn("workflow_run", workflow)
