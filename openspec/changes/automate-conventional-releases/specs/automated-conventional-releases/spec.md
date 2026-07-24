@@ -160,3 +160,17 @@ The repository SHALL document the automated release policy, required protected-b
 
 - **WHEN** tag or release publication fails after a qualifying change reaches `main`
 - **THEN** the documentation explains how to inspect and safely retry the immutable release without manually calculating a replacement version
+
+### Requirement: Release outputs are signed and attested
+
+The release system SHALL create a GPG-signed annotated tag for the planned SHA, publish SHA-256 checksums and detached GPG signatures for the release archive and checksum manifest, and create GitHub build provenance for the archive. It SHALL fail closed when an existing expected tag does not verify with the configured release signing key.
+
+#### Scenario: Qualifying release is published
+
+- **WHEN** a qualifying release is published
+- **THEN** its tag verifies with the release signing key, its archive and checksum manifest have detached signatures, and its archive has GitHub build provenance
+
+#### Scenario: Existing tag cannot be verified
+
+- **WHEN** the expected tag already exists but does not verify with the configured release signing key
+- **THEN** publication fails without creating or replacing a release asset
