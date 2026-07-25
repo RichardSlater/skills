@@ -194,6 +194,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-file-bytes", type=int, default=1_048_576, help="Maximum file size to read")
     parser.add_argument("--scorecard-timeout-seconds", type=int, default=300, help="Scorecard execution/pull timeout")
     parser.add_argument("--container-runtime", help="Preferred Docker-compatible runtime when local Scorecard is unavailable")
+    parser.add_argument("--allow-scorecard-container", action="store_true", help="Explicitly allow execution of the reviewed Scorecard container when no local binary is installed")
     return parser.parse_args(argv)
 
 
@@ -289,25 +290,36 @@ def discover_repositories(target_type: Literal["organization", "user"], target_n
     return active, archived_count, fork_count
 
 
-def make_authenticated_clone_url(clone_url: str, token: str) -> str:
-    """Construct an authenticated HTTPS clone URL for git only.
-
-    The returned value must never be logged or persisted.
-    """
-    if not clone_url.startswith("https://"):
-        raise ValueError("only HTTPS clone URLs are supported")
-    return clone_url.replace("https://", f"https://x-access-token:{token}@", 1)
+def _git_askpass_environment(token: str) -> tuple[dict[str, str], Path]:
+    """Provide HTTPS credentials to git without placing a token in its URL or argv."""
+    helper = tempfile.NamedTemporaryFile(mode="w", prefix="git-askpass-", delete=False)
+    try:
+        helper.write("#!/bin/sh\ncase \"$1\" in *Username*) printf '%s\\n' x-access-token ;; *) printf '%s\\n' \"${GIT_ASKPASS_TOKEN:?missing token}\" ;; esac\n")
+        helper.close()
+        path = Path(helper.name)
+        path.chmod(0o700)
+    except Exception:
+        helper.close()
+        Path(helper.name).unlink(missing_ok=True)
+        raise
+    env = os.environ.copy()
+    env.update({
+        "GIT_ASKPASS": str(path),
+        "GIT_ASKPASS_TOKEN": token,
+        "GIT_TERMINAL_PROMPT": "0",
+    })
+    return env, path
 
 
 def _sanitize_message(message: str, token: str) -> str:
-    safe = message.replace(token, "[REDACTED_TOKEN]") if token else message
-    safe = re.sub(r"https://x-access-token:[^@\s]+@", "https://x-access-token:[REDACTED]@", safe)
-    return safe
+    return message.replace(token, "[REDACTED_TOKEN]") if token else message
 
 
 def clone_repository(repo: RepoMetadata, token: str, destination: Path, clone_depth: int) -> None:
     """Clone one repository into destination using argument-list subprocess calls."""
-    clone_url = make_authenticated_clone_url(repo.clone_url, token)
+    if not repo.clone_url.startswith("https://"):
+        raise ValueError("only HTTPS clone URLs are supported")
+    env, askpass_path = _git_askpass_environment(token)
     cmd = [
         "git",
         "clone",
@@ -318,8 +330,11 @@ def clone_repository(repo: RepoMetadata, token: str, destination: Path, clone_de
     ]
     if repo.default_branch:
         cmd.extend(["--branch", repo.default_branch])
-    cmd.extend([clone_url, str(destination)])
-    completed = subprocess.run(cmd, capture_output=True, text=True, shell=False, check=False)
+    cmd.extend([repo.clone_url, str(destination)])
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, env=env, shell=False, check=False)
+    finally:
+        askpass_path.unlink(missing_ok=True)
     if completed.returncode != 0:
         stderr = _sanitize_message(completed.stderr.strip(), token)
         stdout = _sanitize_message(completed.stdout.strip(), token)
@@ -425,7 +440,7 @@ def _analyze_workflow(rel: str, text: str, result: AnalysisResult) -> None:
         if ref in {"main", "master", "develop", "dev", "HEAD"} or not FULL_SHA_RE.match(ref):
             _add(result, Finding(
                 "github_actions", "high" if ref in {"main", "master"} else "medium", rel, "modify", "Mutable action reference",
-                f"uses: {uses}",
+                "A third-party GitHub Action reference is not pinned to a full commit SHA.",
                 "Pin third-party actions to reviewed full-length commit SHAs and track updates with automation.",
                 "Heuristic finding: mutable action references can change without review and are a common CI supply-chain risk.",
             ))
@@ -482,7 +497,7 @@ def _analyze_dockerfile(rel: str, text: str, result: AnalysisResult) -> None:
         if ":latest" in image or (":" not in image and "@sha256:" not in image):
             _add(result, Finding(
                 "dependencies", "medium", rel, "modify", "Unpinned Docker base image",
-                stripped,
+                "A Docker base image reference is mutable or lacks an immutable digest.",
                 "Pin base images by immutable digest, for example `FROM image:tag@sha256:<digest>`.",
                 "Heuristic finding: mutable container base tags can introduce unreviewed dependencies into builds.",
             ))
@@ -732,6 +747,7 @@ async def _process_repository_impl(
     max_file_bytes: int,
     scorecard_timeout_seconds: int,
     container_runtime: str | None,
+    allow_scorecard_container: bool,
 ) -> RepoProcessResult:
     started = time.monotonic()
     temp_dir = Path(tempfile.mkdtemp(prefix="gh-org-supply-chain-"))
@@ -747,6 +763,7 @@ async def _process_repository_impl(
             token,
             scorecard_timeout_seconds,
             container_runtime,
+            allow_scorecard_container,
         )
         scorecard_evidence = summarize_scorecard(scorecard_execution)
         if scorecard_evidence["status"] != "success":
@@ -781,6 +798,7 @@ async def process_repository(
     max_file_bytes: int,
     scorecard_timeout_seconds: int,
     container_runtime: str | None,
+    allow_scorecard_container: bool,
     dry_run: bool,
 ) -> RepoProcessResult:
     """Process one repository under semaphore and per-repository timeout."""
@@ -794,7 +812,7 @@ async def process_repository(
             result = await asyncio.wait_for(
                 _process_repository_impl(
                     repo, token, output_dir, clone_depth, max_file_bytes,
-                    scorecard_timeout_seconds, container_runtime,
+                    scorecard_timeout_seconds, container_runtime, allow_scorecard_container,
                 ),
                 timeout=repo_timeout_seconds,
             )
@@ -869,6 +887,7 @@ async def main_async(args: argparse.Namespace) -> int:
             max_file_bytes=args.max_file_bytes,
             scorecard_timeout_seconds=args.scorecard_timeout_seconds,
             container_runtime=args.container_runtime,
+            allow_scorecard_container=args.allow_scorecard_container,
             dry_run=args.dry_run,
         ))
         for repo in active_repos
