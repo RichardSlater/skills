@@ -73,10 +73,10 @@ class ScorecardContainerPaths(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    pull=subprocess.CompletedProcess([],0,'','')
    with patch.object(score,'discover_token',return_value=('tok','env')),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score.subprocess,'run',return_value=pull),patch.object(score,'run_json',return_value=(True,'',False)):
-    self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None)['status'],'success')
+    self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None,True)['status'],'success')
    bad=subprocess.CompletedProcess([],1,'','bad')
    with patch.object(score,'discover_token',return_value=(None,None)),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score.subprocess,'run',return_value=bad):
-    self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None)['status'],'failed')
+    self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None,True)['status'],'failed')
 
 class ScorecardCliPaths(unittest.TestCase):
  def test_main_status_exits(self):
