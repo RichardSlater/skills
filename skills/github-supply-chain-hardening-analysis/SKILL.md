@@ -21,6 +21,7 @@ It:
 - Runs OpenSSF Scorecard on each analyzed repository and uses the results as evidence for remediation priorities.
 - Saves generated proposals under `./proposals/` relative to the skill directory unless another output directory is provided.
 - Avoids loading repository-scale loops, clone contents, tokens, and file traversal into the LLM context window.
+- Converts cloned repository content into fixed, redacted heuristic categories; it never emits source lines, action references, Docker image references, or secret values in proposals.
 
 ## When to use this skill
 
@@ -162,6 +163,15 @@ python scripts/gh_orchestrator.py \
   --clone-depth 1
 ```
 
+When a local `scorecard` executable is unavailable, explicitly approve execution of the reviewed container image:
+
+```bash
+python scripts/gh_orchestrator.py \
+  --org "$github_org_name" \
+  --token-source auto \
+  --allow-scorecard-container
+```
+
 For a limited confidence test that clones and analyzes only one active repository:
 
 ```bash
@@ -180,15 +190,16 @@ python scripts/gh_orchestrator.py --user "$github_user_name" --token-source auto
 
 The analysis must treat OpenSSF Scorecard as a primary evidence source, not just a workflow to add. For each repository:
 
-1. Let `gh_orchestrator.py` run Scorecard automatically. It prefers a local `scorecard` executable. If none is installed, `scripts/scorecard_runner.py` finds a working Docker-compatible runtime (`docker`, `podman`, or `nerdctl`), pulls `ghcr.io/ossf/scorecard:latest`, and runs the image. To run the same fallback directly:
+1. Let `gh_orchestrator.py` run a locally installed `scorecard` executable automatically. If none is installed, container execution is disabled by default because it executes external code. The operator must explicitly pass `--allow-scorecard-container`; then `scripts/scorecard_runner.py` finds a working Docker-compatible runtime (`docker`, `podman`, or `nerdctl`) and runs its reviewed immutable Scorecard image. To run the same approved fallback directly:
 
    ```bash
    python scripts/scorecard_runner.py \
      --repo owner/repository \
-     --output scorecard.json
+     --output scorecard.json \
+     --allow-container
    ```
 
-   Use `--container-runtime <name-or-path>` to prefer another Docker-compatible runtime. A local Scorecard failure is reported as a failure; container fallback is used when the local executable is absent.
+   Use `--container-runtime <name-or-path>` to prefer another Docker-compatible runtime. A local Scorecard failure is reported as a failure; the reviewed container fallback requires explicit approval when the local executable is absent.
 2. Authentication is selected, without printing it, from `GITHUB_AUTH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`. The runner maps the selected token to Scorecard's documented `GITHUB_AUTH_TOKEN` environment variable. For a container, `-e GITHUB_AUTH_TOKEN` forwards the value from the child process environment, so it is not present in command arguments or shell history. The container is removed after execution. Users who can inspect the container runtime/daemon may still inspect a running container's environment and must already be treated as privileged.
 3. Record the overall score and a summary of each check result, paying special attention to the lowest-scoring checks. The proposal's `derived_risk_rating` is a local prioritization band derived from the numeric score, not a risk label emitted by Scorecard.
 4. Map failing or low-scoring Scorecard checks to concrete remediations:
