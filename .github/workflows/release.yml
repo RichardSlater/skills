@@ -93,7 +93,7 @@ jobs:
 
       - name: Attest release archive
         if: steps.plan.outputs.release_required == 'true'
-        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3.0.0
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
           subject-path: ${{ steps.package.outputs.archive }}
           # The attestation subject is the artifact's content digest (SHA-256)
