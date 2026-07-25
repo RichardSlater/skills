@@ -16,7 +16,8 @@ import shutil
 import subprocess
 from typing import Any
 
-SCORECARD_IMAGE = "ghcr.io/ossf/scorecard:latest"
+# Reviewed immutable OCI image. Update only after reviewing the upstream release.
+SCORECARD_IMAGE = "ghcr.io/ossf/scorecard@sha256:3f24714e9366917adb7a05635382c97dfecb14b21eaef3dfa2ea48c8e23e0795"
 CONTAINER_RUNTIMES = ("docker", "podman", "nerdctl")
 
 
@@ -102,6 +103,7 @@ def run_scorecard(
     token: str | None = None,
     timeout: int = 300,
     preferred_runtime: str | None = None,
+    allow_container: bool = False,
 ) -> dict[str, Any]:
     """Run Scorecard and return non-secret execution metadata.
 
@@ -124,6 +126,15 @@ def run_scorecard(
             "token_source": token_source,
             "output_path": str(output_path) if code == 0 else None,
             "error": _redact(error, token) or None,
+        }
+
+    if not allow_container:
+        return {
+            "status": "unavailable",
+            "executor": None,
+            "token_source": token_source,
+            "output_path": None,
+            "error": "local Scorecard is unavailable; pass explicit container approval to execute the reviewed container image",
         }
 
     errors: list[str] = []
@@ -173,8 +184,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path, help="Scorecard JSON output path")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--container-runtime", help="Preferred Docker-compatible runtime executable")
+    parser.add_argument("--allow-container", action="store_true", help="Explicitly allow execution of the reviewed Scorecard container image when no local binary is available")
     args = parser.parse_args(argv)
-    result = run_scorecard(args.repo, args.output, timeout=args.timeout, preferred_runtime=args.container_runtime)
+    result = run_scorecard(args.repo, args.output, timeout=args.timeout, preferred_runtime=args.container_runtime, allow_container=args.allow_container)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["status"] == "success" else 1
 

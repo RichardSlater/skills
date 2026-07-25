@@ -130,6 +130,7 @@ def execute(
     output: Path,
     timeout: int,
     preferred: str | None,
+    allow_container: bool = False,
     *,
     clock=time.monotonic,
 ) -> dict[str, Any]:
@@ -160,6 +161,18 @@ def execute(
             output_path=str(output) if ok else None,
             error=redact(error, token) or None,
         )
+    if not allow_container:
+        return result(
+            "unavailable",
+            started,
+            clock,
+            executor=None,
+            command_mode=None,
+            token_source=source,
+            output_path=None,
+            error="local Scorecard is unavailable; pass --allow-container to execute the reviewed container image",
+        )
+
     errors: list[str] = []
     for runtime in working_runtime(preferred):
         name = Path(runtime).name
@@ -235,6 +248,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--container-runtime")
+    parser.add_argument("--allow-container", action="store_true", help="Explicitly allow execution of the reviewed Scorecard container image when no local binary is available")
     parser.add_argument("--private", action="store_true")
     parser.add_argument("--private-consent", choices=("scorecard",))
     args = parser.parse_args()
@@ -245,7 +259,7 @@ def main() -> int:
     except PrivacyError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    response = execute(args.repo, args.output, args.timeout, args.container_runtime)
+    response = execute(args.repo, args.output, args.timeout, args.container_runtime, args.allow_container)
     print(json.dumps(response, indent=2, sort_keys=True))
     return (
         0

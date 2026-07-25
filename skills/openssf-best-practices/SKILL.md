@@ -30,7 +30,7 @@ This skill:
 - discovers whether the repository is already enrolled at bestpractices.dev;
 - retrieves and parses the current project JSON when a project ID is known;
 - compares current badge answers with verifiable repository evidence;
-- runs OpenSSF Scorecard locally or through Podman, Docker, or nerdctl;
+- runs OpenSSF Scorecard locally, or through Podman, Docker, or nerdctl only after explicit container-execution approval;
 - creates or updates the root `.bestpractices.json` automation-proposal file;
 - makes only safe, high-confidence repository changes;
 - prepares a single substantial pull request rather than a sequence of trivial PRs;
@@ -58,7 +58,7 @@ Expected starting state:
 - the shell working directory is inside the target Git repository;
 - `git`, `gh`, and Python 3.11+ are available;
 - `gh auth token` can provide a GitHub token where authentication is needed;
-- at least one of `scorecard`, `podman`, `docker`, or `nerdctl` is available.
+- a local `scorecard` executable is available, or a Docker-compatible runtime is available and the user explicitly approves execution of the reviewed container image.
 
 GitHub CLI may have several authenticated accounts. Repository ownership does not prove which account has the required repository permission, so inspect the active account and available accounts before relying on `gh` API evidence.
 
@@ -260,13 +260,15 @@ Run:
   --output "$ASSESSMENT_DIR/scorecard.json"
 ```
 
+If no local `scorecard` executable is installed, the reviewed container image runs only after the user explicitly approves that external-code execution. Add `--allow-container` to the command above and record that approval.
+
 Authentication order:
 
 1. `GITHUB_AUTH_TOKEN`;
 2. `GITHUB_TOKEN`;
 3. `gh auth token` from the user-selected active `gh` account.
 
-Record which source was used, but never its value. If Scorecard needs access beyond the selected account's existing scopes, report the exact blocker; do not elevate scopes just for Scorecard without a new scoped approval. The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. Scorecard uses a reviewed immutable image digest and one total deadline covering runtime discovery, image pull, and scan. Each result records artifact provenance, command mode, timing, and timeout status; captured output is bounded. Run without a token where supported.
+Record which source was used, but never its value. If Scorecard needs access beyond the selected account's existing scopes, report the exact blocker; do not elevate scopes just for Scorecard without a new scoped approval. The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. A local executable is preferred; the reviewed immutable container image is an explicit opt-in dependency. Each result records artifact provenance, command mode, timing, and timeout status; captured output is bounded. Run without a token where supported.
 
 Scorecard is supporting evidence. It is not interchangeable with Best Practices criteria. A high Scorecard result does not prove a badge criterion, and a low result does not automatically make a self-assessment answer false.
 
