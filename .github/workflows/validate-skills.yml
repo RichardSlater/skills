@@ -32,7 +32,7 @@ jobs:
 
       - name: Run pre-commit quality checks
         run: |
-          python -m pip install pre-commit
+          python -m pip install --disable-pip-version-check --require-hashes -r .github/requirements/pre-commit.txt
           pre-commit run --show-diff-on-failure --color=always --all-files
 
       - name: Validate SKILL.md files
