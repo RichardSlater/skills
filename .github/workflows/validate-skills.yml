@@ -51,7 +51,7 @@ jobs:
           done
 
       - name: Lint Python
-        uses: astral-sh/ruff-action@57714a7c8a2e59f32539362ba31877a1957dded1 # v3.5.1
+        uses: astral-sh/ruff-action@278981a28ce3188b1e39527901f38254bf3aac89 # v4.1.0
         with:
           version: "0.12.0"
           args: check
