@@ -163,7 +163,7 @@ def execute(
         )
     if not allow_container:
         return result(
-            "unavailable",
+            "failed",
             started,
             clock,
             executor=None,
