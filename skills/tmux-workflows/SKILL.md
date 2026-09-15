@@ -11,6 +11,22 @@ Use tmux when a command must remain available alongside Pi instead of occupying 
 1. **Development servers and watchers** — run them in a bottom pane sized to about 15% of the current window.
 2. **Interactive sessions** — create a persistent pane for commands that require the operator to respond, including SSH host-key confirmation, MFA, and `sudo` passwords.
 
+## When to use this skill
+
+Use this skill when Pi is running in a tmux client and the requested work needs either:
+
+- a long-running development server, preview server, test watcher, or similar process visible alongside Pi; or
+- a persistent interactive terminal where the operator must respond directly, such as an SSH login, host-key confirmation, MFA prompt, or `sudo` password prompt.
+
+## When not to use this skill
+
+Do not use this skill when:
+
+- the command is short-lived and its complete output can be handled by an ordinary agent tool invocation;
+- Pi is not running inside tmux;
+- a background service manager, container runtime, or the project’s established process-management tool is the requested or appropriate mechanism; or
+- the purpose is to automate, capture, relay, or bypass passwords, MFA codes, SSH host-key decisions, or other operator authentication.
+
 ## Safety and preflight
 
 1. Check that the current terminal is a tmux client and that `tmux` is installed:
