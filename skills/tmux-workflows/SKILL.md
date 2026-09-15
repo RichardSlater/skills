@@ -8,8 +8,8 @@ compatibility: tmux; Pi running inside a tmux client for pane creation and opera
 
 Use tmux when a command must remain available alongside Pi instead of occupying an agent tool invocation. This skill covers two cases:
 
-1. **Development servers and watchers** — run them in a bottom pane sized to about 15% of the current window.
-2. **Interactive sessions** — create a persistent pane for commands that require the operator to respond, including SSH host-key confirmation, MFA, and `sudo` passwords.
+1. **Development servers and watchers** — place them in an adaptive control area without repeatedly shrinking Pi's pane.
+2. **Interactive sessions** — create a persistent, suitably sized pane for commands that require the operator to respond, including SSH host-key confirmation, MFA, and `sudo` passwords.
 
 ## When to use this skill
 
@@ -46,27 +46,65 @@ Do not use this skill when:
 
 4. Before running a command in a new pane, state the exact command and target (especially for SSH), and wait for explicit approval when it has side effects beyond starting the requested process.
 
-5. Before opening a development-server pane, inspect the current panes and the project's documented status command. Do not start a duplicate server when the requested process is already running:
+5. Before opening any pane, record Pi's pane and inspect the complete window geometry. Also inspect the project's documented status command; do not start a duplicate server when the requested process is already running:
 
    ```bash
-   tmux list-panes -F '#{pane_id}\t#{pane_title}\t#{pane_current_command}'
+   PI_PANE="$(tmux display-message -p '#{pane_id}')"
+   tmux list-panes -F '#{pane_id}\t#{pane_title}\tactive=#{pane_active}\tx=#{pane_left}\ty=#{pane_top}\tw=#{pane_width}\th=#{pane_height}\twindow=#{window_width}x#{window_height}\tcmd=#{pane_current_command}'
    ```
+
+   Do not assume that the active pane is still Pi's pane after another tmux command. Use the recorded pane IDs and geometry for every placement decision.
+
+## Adaptive pane placement
+
+Choose a split from the measured layout; never blindly split the active pane. Use these defaults unless the operator requests another layout:
+
+- preserve at least **120 columns** and **20 rows** for Pi;
+- give each development control pane at least **40 columns** and **6 rows**;
+- prefer extending an existing control area over splitting Pi again; and
+- if no placement satisfies the minimums, do not create a pane. Explain the constraint and ask the operator whether to resize the terminal, close a pane, or approve a smaller minimum.
+
+For a development server or watcher, use this decision order:
+
+1. **Extend an existing control area.** Consider only pane IDs created by this workflow, or a `dev:`-titled pane whose current command has been verified as the known requested process. Use the coordinates to recognize a bottom edge (`pane_top + pane_height == window_height`) or right edge (`pane_left + pane_width == window_width`), then select the largest eligible control pane:
+   - split a bottom-row control pane left/right with `-h -p 50` when both resulting panes will be at least 40 columns; or
+   - split a side-column control pane top/bottom with `-v -p 50` when both resulting panes will be at least 6 rows.
+   Account for the one-cell divider in these calculations. Prefer the candidate that maximizes the smaller resulting pane. This keeps multiple controls together instead of taking another 15% from Pi for every process.
+2. **Create a side control area.** If Pi's pane can lose a control pane of at least 40 columns and still remain at least 120 columns wide, split Pi with `-h`. Use about 20% of Pi's width for the control pane, clamped so both minimums hold.
+3. **Create a bottom control area.** Otherwise, if 15% of Pi's current height is at least 6 rows and the remainder is at least 20 rows, split Pi with `-v -p 15`.
+4. **Stop rather than degrade the layout.** Do not split some unrelated pane, stack another bottom strip, or silently violate a minimum.
+
+Re-run the geometry inspection immediately before every split because the operator may have resized or rearranged the window. Pane titles and commands are untrusted hints, not proof of ownership.
 
 ## Development servers and watchers
 
-For a command such as `pnpm dev`, create a bottom pane at approximately 15% of the window height, record its ID, give it a descriptive title, and send the approved command to its interactive shell:
+After applying the decision tree, create the pane by targeting the selected pane explicitly. These examples show the three placement forms:
 
 ```bash
-PI_PANE="$(tmux display-message -p '#{pane_id}')"
-SERVER_PANE="$(tmux split-window -v -p 15 -P -F '#{pane_id}')"
+# Add a peer to an existing bottom control row.
+SERVER_PANE="$(tmux split-window -t "$CONTROL_PANE" -h -p 50 -P -F '#{pane_id}')"
+
+# Or create a side control area; CONTROL_COLUMNS was calculated from Pi's width.
+SERVER_PANE="$(tmux split-window -t "$PI_PANE" -h -l "$CONTROL_COLUMNS" -P -F '#{pane_id}')"
+
+# Or, on a narrower screen, create the first bottom control area.
+SERVER_PANE="$(tmux split-window -t "$PI_PANE" -v -p 15 -P -F '#{pane_id}')"
+```
+
+Use exactly one of those commands, not all three. For an existing side control column, add a peer with `tmux split-window -t "$CONTROL_PANE" -v -p 50 ...`.
+
+Then title the new pane and send the approved command to its interactive shell:
+
+```bash
 tmux select-pane -t "$SERVER_PANE" -T 'dev: pnpm dev'
 tmux send-keys -t "$SERVER_PANE" -l -- 'pnpm dev'
 tmux send-keys -t "$SERVER_PANE" Enter
 tmux select-pane -t "$PI_PANE"
 ```
 
-- `-v` splits vertically, creating a pane below the current pane.
-- `-p 15` sizes the new pane to 15% of the available rows. Do not use a fixed row count.
+- `-h` creates a pane to the right; `-v` creates one below.
+- `-p 50` divides an existing control pane approximately evenly. `-p 15` is only for creating the first bottom control area, never for each additional process.
+- `-l "$CONTROL_COLUMNS"` uses the side width calculated from current geometry.
 - `-P -F '#{pane_id}'` returns the new pane's exact ID, so all later actions target it explicitly.
 - `send-keys -l` sends literal command text to the new pane's interactive shell; send `Enter` separately. This preserves shell initialization such as `PATH` and `direnv`.
 - Preserve the current working directory unless the operator explicitly requests another directory.
@@ -93,12 +131,20 @@ After creating the pane:
 
 ## Interactive and authentication-required sessions
 
-Create a dedicated bottom pane and leave focus in it so the operator can interact immediately. Use a larger default than a development-server pane: 40% of available rows, which leaves enough space for SSH and privilege-escalation prompts.
+Create a dedicated pane and leave focus in it so the operator can interact immediately. Do not place an authentication session in a small development control pane. After inspecting the current geometry:
 
-Create the pane, record and title it, then send the approved command to its interactive shell. Leave focus in this pane for the operator:
+1. Prefer a side pane when it can be at least 50 columns wide while leaving Pi at least 120 columns wide.
+2. Otherwise use a bottom pane at 40% when it can be at least 12 rows high while leaving Pi at least 20 rows high.
+3. If neither fits, stop and ask the operator to resize or rearrange the window. Never capture output from an authentication pane to compensate for an unusably small layout.
+
+Create the pane by explicitly targeting `$PI_PANE`, record and title it, then send the approved command to its interactive shell. Use exactly one split form and leave focus in the new pane:
 
 ```bash
-INTERACTIVE_PANE="$(tmux split-window -v -p 40 -P -F '#{pane_id}')"
+# Wide layout:
+INTERACTIVE_PANE="$(tmux split-window -t "$PI_PANE" -h -l "$INTERACTIVE_COLUMNS" -P -F '#{pane_id}')"
+
+# Or narrower layout with sufficient height:
+INTERACTIVE_PANE="$(tmux split-window -t "$PI_PANE" -v -p 40 -P -F '#{pane_id}')"
 tmux select-pane -t "$INTERACTIVE_PANE" -T 'interactive: admin@example.com'
 tmux send-keys -t "$INTERACTIVE_PANE" -l -- 'ssh admin@example.com'
 tmux send-keys -t "$INTERACTIVE_PANE" Enter
@@ -134,8 +180,8 @@ Once the pane opens:
 Run these from a tmux pane, not from inside the pane being managed:
 
 ```bash
-# List pane IDs, titles, sizes, active state, and current commands.
-tmux list-panes -F '#{pane_id}\t#{pane_title}\t#{pane_active}\t#{pane_height}/#{window_height}\t#{pane_current_command}'
+# List pane IDs, titles, positions, sizes, active state, and current commands.
+tmux list-panes -F '#{pane_id}\t#{pane_title}\tactive=#{pane_active}\tx=#{pane_left}\ty=#{pane_top}\tw=#{pane_width}\th=#{pane_height}\twindow=#{window_width}x#{window_height}\tcmd=#{pane_current_command}'
 
 # Focus a known pane.
 tmux select-pane -t '%<pane-id>'

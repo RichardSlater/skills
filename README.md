@@ -15,7 +15,7 @@ This repository provides GitHub supply-chain hardening workflows and an OpenSSF 
 | [`github-supply-chain-hardening-analysis`](skills/github-supply-chain-hardening-analysis/SKILL.md) | Discovers repositories for a GitHub organization or user, analyzes supply-chain and secure-SDLC posture, runs OpenSSF Scorecard where available, and writes OpenSpec-style remediation proposals. | No |
 | [`github-supply-chain-hardening-remediation`](skills/github-supply-chain-hardening-remediation/SKILL.md) | Applies an approved hardening proposal as file-based changes on a branch, validates the result, and opens a pull request with manual follow-up guidance. | Yes, only after explicit approval |
 | [`openssf-best-practices`](skills/openssf-best-practices/SKILL.md) | Assesses a GitHub repository against OpenSSF Best Practices Badge criteria, validates schema-backed proposals, and uses Scorecard only as supporting evidence. | Assessment: no. Apply: only after explicit bounded approval. |
-| [`tmux-workflows`](skills/tmux-workflows/SKILL.md) | Runs development servers in a small bottom pane and creates operator-controlled interactive SSH or `sudo` sessions. | Creates tmux panes and runs only explicitly approved commands. |
+| [`tmux-workflows`](skills/tmux-workflows/SKILL.md) | Places development controls adaptively and creates operator-controlled interactive SSH or `sudo` sessions. | Creates tmux panes and runs only explicitly approved commands. |
 | [`bubblewrap-isolation`](skills/bubblewrap-isolation/SKILL.md) | Runs short-lived project commands inside a Bubblewrap sandbox with isolated namespaces, a private home, and no network by default. | Project files only, when the invoked command writes them. |
 
 ## Repository layout
