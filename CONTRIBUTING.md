@@ -47,6 +47,7 @@ Run the complete local quality gate before opening a pull request:
 pre-commit run --all-files
 python -m compileall -q skills
 python -m unittest discover -s skills/github-supply-chain-hardening-remediation/tests -v
+python -m unittest discover -s skills/tmux-workflows/tests -v
 python -m coverage run --rcfile=tests/.coveragerc -m unittest discover -s tests/openssf_best_practices -v
 python -m coverage report --rcfile=tests/.coveragerc
 ```
