@@ -49,6 +49,22 @@ Use `sh -c` only where shell syntax is unavoidable, with a fixed script authored
 "$RUN_ISOLATED" -- sh -c 'test -f "$1"' sh 'path supplied by the user'
 ```
 
+## Bootstrap-dependent quality gates
+
+Treat `pre-commit` and similar tools as both command runners and dependency bootstrappers. Before running a pre-commit quality gate, probe the executable and version visible through the standard launcher:
+
+```bash
+"$RUN_ISOLATED" -- sh -c 'command -v pre-commit && pre-commit --version'
+```
+
+Compare the reported path and version with the installation intended for the quality gate. If the probe cannot find `pre-commit`, or reports an unexpected installation or version, stop and report the discrepancy. Do not silently substitute a host-side command or run outside the sandbox.
+
+An offline pre-commit run is supported only when its executable and every configured hook repository, hook executable, and language environment are already available through sandbox-visible paths. Local or vendored hooks with project-visible dependencies are preferred. If a run tries to clone a hook repository, download a dependency, or construct a missing language environment, treat that as an expected offline-bootstrap failure: stop, identify the missing dependency, and explain that initialization needs authority absent from the standard sandbox. Do not retry with networking, extra mounts, or unsandboxed execution without explicit approval.
+
+If the operator approves a cache exception, prefer a fully initialized pre-commit cache dedicated to the current project. Record the exact canonical cache path and mount mode; expose persistent hook content read-only, preserve network isolation, and direct locks, logs, patches, and other writable runtime state to ephemeral storage. Never automatically mount the user's global pre-commit cache, especially writable: it can disclose unrelated or private hook sources and allow cross-project cache poisoning. If prepared hooks need to mutate persistent cache content, stop and recommend a disposable container or VM rather than widening that cache to writable access.
+
+Escalation remains subject to [Scoped exceptions](#scoped-exceptions). In preference order, use project-visible local or vendored hooks, an explicitly approved project-dedicated prepared cache, a disposable container or VM for initialization, or an explicitly approved unsandboxed run. For any approved alternative, report the exact command, cache or mount paths and modes, networking decision, rationale, and residual risk. The standard launcher remains private-home and no-network; do not modify its interface or authority as an implicit workaround.
+
 The launcher:
 
 - requires a user namespace and creates PID, IPC, UTS, cgroup, and network namespaces; the sandbox has no network interfaces;
