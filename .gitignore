@@ -2,6 +2,8 @@
 .pi/
 .pi-subagents/
 .agent/
+.claude/commands/opsx/*.md
+.claude/skills/openspec-*
 
 # Proposals
 skills/github-supply-chain-hardening-analysis/proposals/
