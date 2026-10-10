@@ -14,7 +14,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from safe_output import atomic_write_text
-from privacy import PrivacyError, disclosure_record
+from privacy import PrivacyError, require_disclosure
+from bounded_process import run as run_process, run_container
+from analyze_best_practices import validate_output_destination
+import hashlib
 
 # Deliberately reviewed immutable artifact. Update only with reviewed provenance.
 SCORECARD_ARTIFACT = {
@@ -82,23 +85,24 @@ def run_json(
     clock=time.monotonic,
 ) -> tuple[bool, str, bool]:
     try:
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=env,
-            check=False,
-            timeout=remaining(deadline, clock),
-        )
+        if len(command) > 2 and command[1:3] == ["run", "--rm"]:
+            arguments = command[3:]
+            if arguments[:2] == ["-e", "GITHUB_AUTH_TOKEN"]:
+                arguments = arguments[2:]
+            result = run_container(command[0], arguments[0], arguments[1:], env=env,
+                                   timeout=remaining(deadline, clock))
+        else:
+            result = run_process(command, env=env, timeout=remaining(deadline, clock))
         if result.returncode != 0:
             return False, _capture(result.stderr), False
         json.loads(result.stdout)
-        atomic_write_text(output.parent.resolve(), output.name, result.stdout)
+        token = env.get("GITHUB_AUTH_TOKEN")
+        payload = result.stdout.replace(token, "[REDACTED_TOKEN]") if token else result.stdout
+        atomic_write_text(output.parent.absolute(), output.name, payload)
         return True, "", False
     except (subprocess.TimeoutExpired, TimeoutError):
         return False, "shared Scorecard deadline exceeded", True
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
         return False, str(exc), False
 
 
@@ -116,7 +120,7 @@ def result(status: str, started: float, clock, **values: Any) -> dict[str, Any]:
     return {
         "status": status,
         "provenance": {
-            **SCORECARD_ARTIFACT,
+            **(SCORECARD_ARTIFACT if values.get("command_mode") == "container" else values.pop("local_provenance", {"artifact": "not-executed"})),
             "started_monotonic": started,
             "finished_monotonic": clock(),
             "timeout_state": status == "timed_out",
@@ -150,6 +154,9 @@ def execute(
     ]
     local = shutil.which("scorecard")
     if local:
+        with open(local, "rb") as executable:
+            local_provenance = {"executable": str(Path(local).resolve()),
+                                "sha256": hashlib.file_digest(executable, "sha256").hexdigest()}
         ok, error, timed_out = run_json([local, *args], output, env, deadline, clock)
         return result(
             "success" if ok else "timed_out" if timed_out else "failed",
@@ -157,6 +164,7 @@ def execute(
             clock,
             executor="scorecard",
             command_mode="local",
+            local_provenance=local_provenance,
             token_source=source,
             output_path=str(output) if ok else None,
             error=redact(error, token) or None,
@@ -177,15 +185,8 @@ def execute(
     for runtime in working_runtime(preferred):
         name = Path(runtime).name
         try:
-            pull = subprocess.run(
-                [runtime, "pull", SCORECARD_ARTIFACT["image"]],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=env,
-                check=False,
-                timeout=remaining(deadline, clock),
-            )
+            pull = run_process([runtime, "pull", SCORECARD_ARTIFACT["image"]],
+                               env=env, timeout=remaining(deadline, clock), stdout_limit=64 * 1024)
         except (subprocess.TimeoutExpired, TimeoutError):
             return result(
                 "timed_out",
@@ -197,6 +198,9 @@ def execute(
                 output_path=None,
                 error="shared Scorecard deadline exceeded",
             )
+        except (OSError, ValueError) as exc:
+            errors.append(f"{name} pull: {redact(str(exc), token)}")
+            continue
         if pull.returncode != 0:
             errors.append(f"{name} pull: {redact(pull.stderr, token)}")
             continue
@@ -249,17 +253,17 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--container-runtime")
     parser.add_argument("--allow-container", action="store_true", help="Explicitly allow execution of the reviewed Scorecard container image when no local binary is available")
-    parser.add_argument("--private", action="store_true")
-    parser.add_argument("--private-consent", choices=("scorecard",))
+    parser.add_argument("--consent-file", type=Path, required=True)
+    parser.add_argument("--approval", type=Path)
     args = parser.parse_args()
     try:
-        disclosure_record(
-            {"isPrivate": args.private}, "scorecard", args.private_consent
-        )
-    except PrivacyError as exc:
+        validate_output_destination(args.output, args.approval)
+        consent = require_disclosure(args.consent_file, args.repo, "scorecard")
+    except (PrivacyError, OSError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     response = execute(args.repo, args.output, args.timeout, args.container_runtime, args.allow_container)
+    response["disclosure_consent"] = consent
     print(json.dumps(response, indent=2, sort_keys=True))
     return (
         0

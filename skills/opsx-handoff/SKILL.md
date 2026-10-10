@@ -25,17 +25,17 @@ Do not use this skill when:
 
 - no change has partial progress or active work in this session — there is nothing to hand off;
 - the change is fully implemented — suggest archiving with `/opsx-archive` instead; or
-- the operator wants to revise the plan rather than pause — use `/opsx-update` instead.
+- the operator wants to revise the plan rather than pause — discuss artifact updates through an available OpenSpec workflow instead.
 
 ## Steps
 
-Before any handoff, ensure that the OpenSpec change is fully up-to-date, tasks that are complete must be checked off, a `HANDOFF.md` is not a substitute for proper OpenSpec housekeeping, and the operator is ready to clear session context.
+Verify that artifacts reflect implementation state and the operator is ready to clear context. This workflow writes only `HANDOFF.md`. If checkboxes or other artifacts need correction, pause and request separate housekeeping authorization before handoff.
 
 1. **Select the change(s)**
 
    Run `openspec list --json` and select the change(s) actually being worked on: those with partial task progress or active references in the current session (files touched, commands run, decisions made). If the operator named a change, use it. If no change is in flight, stop and say so — do not invent a handoff.
 
-   **Store selection:** If the work lives in a named store, run `openspec store list --json` to discover the store id and pass `--store <id>` on the commands below, as the apply skill does. Without a store, commands act on the nearest local `openspec/` root.
+   **Store selection:** If the work lives in a named store, run `openspec store list --json` to discover the store id and pass `--store <id>` on the commands below, and retain the store selection when resuming. Do not assume the installed apply skill already supports it. Without a store, commands act on the nearest local `openspec/` root. If this CLI does not support stores, stop for a named-store request rather than falling back to another root.
 
 2. **Check state**
 
@@ -45,7 +45,7 @@ Before any handoff, ensure that the OpenSpec change is fully up-to-date, tasks t
    openspec status --change "<name>" --json
    ```
 
-   Use the progress (complete / total / remaining) and `changeRoot` to ground the handoff in the actual task state.
+   Status reports artifact completion, not task progress. Run `openspec instructions apply --change "<name>" --json` (with selected `--store` if applicable); use its `progress` and `changeDir`. If unavailable, inspect the tasks artifact and report the limitation instead of inventing counts.
 
 3. **Gather implementation context**
 
@@ -61,7 +61,7 @@ Before any handoff, ensure that the OpenSpec change is fully up-to-date, tasks t
 
 4. **Write `HANDOFF.md`**
 
-   Write (or replace) `<changeRoot>/HANDOFF.md` — the change directory alongside `proposal.md`, `tasks.md`, and `specs/`, not the main spec tree or the archive. If one already exists, replace it with the current state instead of appending. Do not edit the change's other artifacts from a handoff.
+   Write (or replace) `<changeDir>/HANDOFF.md` — the change directory alongside `proposal.md`, `tasks.md`, and `specs/`, not the main spec tree or the archive. If one already exists, replace it with the current state instead of appending. Do not edit the change's other artifacts from a handoff.
 
    Use this structure, omitting any section that has nothing to say:
 
@@ -100,7 +100,7 @@ Before any handoff, ensure that the OpenSpec change is fully up-to-date, tasks t
 
    - the path of the handoff and which changes were covered;
    - that session context can now be cleared; and
-   - that work resumes with `/opsx-apply <change>`.
+   - that work resumes with `/opsx-apply <change>` after explicitly reading `<changeDir>/HANDOFF.md` and selecting the same store. Verify resume reads it; schema context does not automatically include handoffs.
 
 ## Guardrails
 

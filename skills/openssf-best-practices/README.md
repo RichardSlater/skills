@@ -4,11 +4,11 @@ A skill for a read-only-first assessment of one GitHub repository against the Op
 
 ## Compatibility
 
-Python 3.11+, GitHub CLI, and network access are required. Scorecard assessment additionally requires the pinned local executable or Podman, Docker, or nerdctl.
+Offline assessment requires Python 3.11+ and Git on POSIX with no-follow descriptor-relative access. GitHub CLI/network access are needed only for explicitly approved enrichment. Scorecard requires a reviewed local executable or explicitly approved digest-pinned container.
 
 ## Boundaries and outputs
 
-Assessment is strictly read-only and stores transient results outside the target repository: it never formats, validates in place, stages, restores, or otherwise writes target-repository files. Potentially writing tools run only against a temporary assessment copy. Capture the initial `git status --short` and confirm it is unchanged at completion. Private repositories are local-only unless the user gives repository- and destination-scoped disclosure consent. Apply work requires explicit approval naming the repository, `scope: "apply"`, and every repository-relative destination.
+Assessment is strictly read-only and stores transient results outside the target repository: it never formats, validates in place, stages, restores, or otherwise writes target-repository files. Potentially writing tools run only against a temporary assessment copy. Capture and compare content snapshots of HEAD, index and visible files before and after the read-only phase. Ignored paths are explicitly outside snapshot coverage; keep caches outside the tree. After approved apply, report the intended diff instead of claiming an unchanged tree. Private repositories are local-only unless the user gives repository- and destination-scoped disclosure consent. Apply work requires explicit approval naming the repository, `scope: "apply"`, and every repository-relative destination.
 
 Supported BadgeApp automation inputs are `.bestpractices.json` and `.project.d/bestpractices.json`. Generated evidence may use `.bestpractices.dev/`, but activate the supplied `.gitignore.example` in the target repository before writing it there.
 

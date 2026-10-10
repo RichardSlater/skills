@@ -7,6 +7,7 @@ whole workflow, so action pins and their version comments survive unchanged.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,10 @@ from typing import Any
 import yaml
 
 REQUIRED_BASELINE = {"contents": "read"}
+READ_SCOPES = ("actions", "checks", "contents", "deployments", "discussions", "issues",
+               "packages", "pages", "pull-requests", "security-events", "statuses")
+PUBLISH_ACTIONS = {"actions/checkout", "actions/upload-artifact", "github/codeql-action/upload-sarif",
+                   "ossf/scorecard-action", "step-security/harden-runner"}
 
 
 def _load(text: str) -> dict[str, Any]:
@@ -31,7 +36,10 @@ def _steps(job: Any) -> list[Any]:
 
 
 def _has_action(job: Any, action: str) -> bool:
-    return any(isinstance(step, dict) and action in str(step.get("uses", "")).lower() for step in _steps(job))
+    return any(isinstance(step, dict) and (
+        str(step.get("uses", "")).split("@", 1)[0].lower() == action or
+        action == "upload-sarif" and str(step.get("uses", "")).split("@", 1)[0].lower().endswith("/upload-sarif")
+    ) for step in _steps(job))
 
 
 def _is_true(value: Any) -> bool:
@@ -58,7 +66,7 @@ def scorecard_requirements(document: dict[str, Any]) -> dict[str, dict[str, str]
                 permissions["security-events"] = "write"
             if scorecard:
                 for step in _steps(job):
-                    if isinstance(step, dict) and "ossf/scorecard-action" in str(step.get("uses", "")).lower():
+                    if isinstance(step, dict) and str(step.get("uses", "")).split("@", 1)[0].lower() == "ossf/scorecard-action":
                         publish = step.get("with", {}).get("publish_results") if isinstance(step.get("with"), dict) else None
                         if _is_true(publish):
                             permissions["id-token"] = "write"
@@ -70,6 +78,39 @@ def validate_scorecard_workflow(text: str) -> list[str]:
     """Return semantic permission errors for Scorecard and SARIF jobs."""
     document = _load(text)
     errors: list[str] = []
+    baseline = document.get("permissions", {})
+    if baseline == "write-all" or isinstance(baseline, dict) and "write" in baseline.values():
+        errors.append("workflow-level write permissions are forbidden")
+    for name, job in document["jobs"].items():
+        if not isinstance(job, dict):
+            continue
+        scorecard_steps = [step for step in _steps(job) if isinstance(step, dict)
+                          and str(step.get("uses", "")).split("@", 1)[0].lower() == "ossf/scorecard-action"]
+        publishing = False
+        for step in scorecard_steps:
+            value = step.get("with", {}).get("publish_results", "false")
+            if str(value).lower() not in {"true", "false"}:
+                errors.append(f"jobs.{name}: dynamic publish_results requires manual validation")
+            publishing |= _is_true(value)
+        if not publishing:
+            continue
+        if "env" in document or "defaults" in document:
+            errors.append("publishing workflow forbids top-level env/defaults")
+        if any(key in job for key in ("env", "defaults", "container", "services")):
+            errors.append(f"jobs.{name}: publishing forbids env/defaults/containers/services")
+        runner = job.get("runs-on", "")
+        if isinstance(runner, list) and len(runner) == 1:
+            runner = runner[0]
+        if runner not in ("ubuntu-latest", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"):
+            errors.append(f"jobs.{name}: publishing requires a recognized Ubuntu hosted-runner label")
+        for step in _steps(job):
+            if not isinstance(step, dict) or str(step.get("uses", "")).split("@", 1)[0] not in PUBLISH_ACTIONS:
+                errors.append(f"jobs.{name}: publishing contains a non-approved step")
+        for other_name, other in document["jobs"].items():
+            if other_name != name and isinstance(other, dict):
+                permissions = other.get("permissions", {})
+                if permissions == "write-all" or isinstance(permissions, dict) and permissions.get("id-token") == "write":
+                    errors.append(f"jobs.{other_name}: only the publishing job may request id-token: write")
     for name, required in scorecard_requirements(document).items():
         job = document["jobs"][name]
         actual = job.get("permissions", {}) if isinstance(job, dict) else {}
@@ -77,7 +118,7 @@ def validate_scorecard_workflow(text: str) -> list[str]:
             errors.append(f"jobs.{name}.permissions must be a mapping")
             continue
         for permission, value in required.items():
-            if str(actual.get(permission, "")).lower() != value:
+            if str(actual.get(permission, "")).lower() not in ({"read", "write"} if value == "read" else {value}):
                 errors.append(f"jobs.{name} requires {permission}: {value}")
     return errors
 
@@ -110,7 +151,9 @@ def _merge_permissions(lines: list[str], start: int, end: int, indent: int, requ
     if value:
         if value != "read-all":
             raise ValueError(f"ambiguous scalar permissions at line {key + 1}: {value}")
-        replacement = [" " * indent + "permissions:\n", *[" " * (indent + 2) + f"{k}: {v}\n" for k, v in required.items()]]
+        merged = {scope: "read" for scope in READ_SCOPES}
+        merged.update(required)
+        replacement = [" " * indent + "permissions:\n", *[" " * (indent + 2) + f"{k}: {v}\n" for k, v in merged.items()]]
         return lines[:key] + replacement + lines[key + 1:]
     mapping_end = _block_end(lines, key, indent)
     existing: dict[str, int] = {}
@@ -130,6 +173,9 @@ def _merge_permissions(lines: list[str], start: int, end: int, indent: int, requ
                     comment = " #" + lines[index].split("#", 1)[1]
                 elif lines[index].endswith("\n"):
                     comment = "\n"
+                existing_value = lines[index].split(":", 1)[1].split("#", 1)[0].strip()
+                if value == "read" and existing_value == "write":
+                    continue
                 lines[index] = f"{match.group(1)} {value}{comment}"
     additions = [" " * (indent + 2) + f"{k}: {v}\n" for k, v in required.items() if k not in existing]
     return lines[:mapping_end] + additions + lines[mapping_end:]
@@ -143,7 +189,16 @@ def remediate_workflow(text: str) -> str:
         return text
     lines = text.splitlines(keepends=True)
     # A read-only workflow baseline; job mappings below deliberately replace it.
-    lines = _merge_permissions(lines, 0, len(lines), 0, REQUIRED_BASELINE)
+    baseline = document.get("permissions")
+    if baseline == "write-all" or isinstance(baseline, dict) and "write" in baseline.values():
+        raise ValueError("move workflow write scopes into reviewed job mappings before remediation")
+    if baseline is None:
+        inherited = [name for name, job in document["jobs"].items()
+                     if name not in required_jobs and isinstance(job, dict) and "permissions" not in job]
+        if inherited:
+            raise ValueError("unrelated inherited permissions require an explicit reviewed baseline")
+        lines = _merge_permissions(lines, 0, len(lines), 0, REQUIRED_BASELINE)
+    # Existing read-only baseline is preserved, including read-all inheritance.
     for job_name, required in required_jobs.items():
         # Reparse boundaries after every insertion rather than relying on stale indexes.
         jobs_index = _find_key(lines, "jobs", 0, len(lines), 0)
@@ -161,9 +216,12 @@ def remediate_workflow(text: str) -> str:
     return output
 
 
-def scorecard_workflow_template() -> str:
+def scorecard_workflow_template(default_branch: str = "main") -> str:
     """The pinned default Scorecard workflow used when no workflow exists."""
-    return """name: Scorecard supply-chain security\n\non:\n  branch_protection_rule:\n  schedule:\n    - cron: '17 14 * * 1'\n  push:\n    branches: [main]\n\npermissions:\n  contents: read\n\njobs:\n  analysis:\n    permissions:\n      contents: read\n      security-events: write\n      id-token: write\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2\n        with:\n          persist-credentials: false\n      - uses: ossf/scorecard-action@0864cf19026789058feabb7e87baa5f140aac736 # v2.3.3\n        with:\n          results_file: results.sarif\n          results_format: sarif\n          publish_results: true\n      - uses: github/codeql-action/upload-sarif@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66 # v3\n        with:\n          sarif_file: results.sarif\n"""
+    if not default_branch or "\n" in default_branch or "\r" in default_branch:
+        raise ValueError("a verified default branch is required")
+    template = """name: Scorecard supply-chain security\n\non:\n  branch_protection_rule:\n  schedule:\n    - cron: '17 14 * * 1'\n  push:\n    branches: [main]\n\npermissions:\n  contents: read\n\njobs:\n  analysis:\n    permissions:\n      contents: read\n      security-events: write\n      id-token: write\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          persist-credentials: false\n      - uses: ossf/scorecard-action@55891bbd73f2425e97637d96e306fc9d491d0b21 # v2.4.4\n        with:\n          results_file: results.sarif\n          results_format: sarif\n          publish_results: true\n      - uses: github/codeql-action/upload-sarif@cee97f86b972a3ded3c58d04148362b193ddc518 # v4.38.3\n        with:\n          sarif_file: results.sarif\n"""
+    return template.replace("branches: [main]", f"branches: [{json.dumps(default_branch)}]")
 
 
 def main() -> int:

@@ -16,7 +16,10 @@ This repository provides GitHub supply-chain hardening workflows and an OpenSSF 
 | [`github-supply-chain-hardening-remediation`](skills/github-supply-chain-hardening-remediation/SKILL.md) | Applies an approved hardening proposal as file-based changes on a branch, validates the result, and opens a pull request with manual follow-up guidance. | Yes, only after explicit approval |
 | [`openssf-best-practices`](skills/openssf-best-practices/SKILL.md) | Assesses a GitHub repository against OpenSSF Best Practices Badge criteria, validates schema-backed proposals, and uses Scorecard only as supporting evidence. | Assessment: no. Apply: only after explicit bounded approval. |
 | [`tmux-workflows`](skills/tmux-workflows/SKILL.md) | Plans and reuses utility, development, and operator-controlled interactive tmux panes. | Creates tmux panes and runs only explicitly approved commands. |
-| [`bubblewrap-isolation`](skills/bubblewrap-isolation/SKILL.md) | Runs short-lived project commands inside a Bubblewrap sandbox with isolated namespaces, a private home, and no network by default. | Project files only, when the invoked command writes them. |
+| [`bubblewrap-isolation`](skills/bubblewrap-isolation/SKILL.md) | Isolates short-lived agent commands in trusted repositories with private namespaces, a private home, and no network by default. | Project files when commands write them; documented trusted-workflow host exceptions. |
+| [`malicious-intent-analysis`](skills/malicious-intent-analysis/SKILL.md) | Reviews unfamiliar or suspicious artifacts with separate impact, confidence and intent assessments. | No target changes or execution; reports outside the target. |
+| [`opsx-handoff`](skills/opsx-handoff/SKILL.md) | Saves in-flight OpenSpec context for a later session. | Writes only the selected change's `HANDOFF.md`. |
+| [`pre-commit`](skills/pre-commit/SKILL.md) | Verifies repository-specific hooks and signing before approved publication. | Hooks may modify files; commits/pushes require approval. |
 
 ## Repository layout
 
@@ -47,6 +50,16 @@ skills/
     SKILL.md
     scripts/
       run-isolated.sh
+  malicious-intent-analysis/
+    SKILL.md
+    LICENSE
+    references/
+    assets/
+      report-template.md
+  opsx-handoff/
+    SKILL.md
+  pre-commit/
+    SKILL.md
 tests/
   openssf_best_practices/
 ```
@@ -56,13 +69,13 @@ tests/
 ### 1. Install the skills
 
 ```bash
-npx skills add https://github.com/RichardSlater/skills
+skills add https://github.com/RichardSlater/skills
 ```
 
-The installer presents the available skills to add. To install a specific skill directly, pass the skill name with the skills CLI option, for example:
+First provision a reviewed `skills` CLI release with verified package integrity; do not bootstrap it with an unpinned `npx` download. Review an immutable source revision before activating installed instructions. The installer presents the available skills to add. To install a specific skill directly, pass the skill name with the skills CLI option, for example:
 
 ```bash
-npx skills add https://github.com/RichardSlater/skills --skill github-supply-chain-hardening-analysis
+skills add https://github.com/RichardSlater/skills --skill github-supply-chain-hardening-analysis
 ```
 
 ### 2. Authenticate with GitHub
@@ -84,7 +97,7 @@ Start your coding agent and invoke the skill command:
 /github-supply-chain-hardening-analysis
 ```
 
-The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals. OpenSSF Scorecard runs locally when installed; otherwise the skill can pull and run `ghcr.io/ossf/scorecard:latest` with Docker, Podman, or nerdctl. It can safely source authentication from `gh auth token` in process memory and forward it as `GITHUB_AUTH_TOKEN` without putting the token in command arguments.
+The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals. OpenSSF Scorecard runs locally when installed; otherwise, explicit container approval permits a reviewed digest-pinned Scorecard image through Docker, Podman or nerdctl. It never implicitly executes `latest`. It can safely source authentication from `gh auth token` in process memory and forward it as `GITHUB_AUTH_TOKEN` without putting the token in command arguments.
 
 Generated proposals are written under the analysis skill's configured output directory. Treat proposals as potentially sensitive because they may include repository security posture and remediation details.
 
@@ -93,6 +106,8 @@ Generated proposals are written under the analysis skill's configured output dir
 The analysis skill is intentionally read-only. It must not push branches, open issues, create pull requests, mutate repository settings, or write secrets to disk.
 
 The remediation skill is intentionally review-based. It applies approved file changes on a branch and opens a pull request only after explicit user approval. Repository settings such as branch protection, rulesets, secret scanning, and organization policies remain manual administrator follow-up tasks.
+
+Use `malicious-intent-analysis` before trusting unfamiliar or suspicious artifacts. It performs read-only static review without executing target code, installing dependencies, or contacting embedded endpoints. Its impact, confidence, and intent assessments are separate; absence of findings is not a safety certification. `bubblewrap-isolation` instead constrains ordinary agent commands in trusted repositories, and its host-side workflow exceptions do not authorize execution of suspicious artifacts.
 
 ## Development guidelines
 

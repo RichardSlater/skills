@@ -1,70 +1,41 @@
-"""Contract checks for the Bubblewrap isolation skill guidance."""
-
+"""Contract checks for the approved trusted-workflow Bubblewrap guidance."""
 from pathlib import Path
 import unittest
 
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SKILL_PATH = REPOSITORY_ROOT / "skills" / "bubblewrap-isolation" / "SKILL.md"
-LAUNCHER_PATH = (
-    REPOSITORY_ROOT
-    / "skills"
-    / "bubblewrap-isolation"
-    / "scripts"
-    / "run-isolated.sh"
-)
+ROOT = Path(__file__).resolve().parents[2]
 
 
 class BubblewrapSkillContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.skill = SKILL_PATH.read_text(encoding="utf-8")
-        cls.launcher = LAUNCHER_PATH.read_text(encoding="utf-8")
+        cls.skill = (ROOT / "skills/bubblewrap-isolation/SKILL.md").read_text()
+        cls.launcher = (ROOT / "skills/bubblewrap-isolation/scripts/run-isolated.sh").read_text()
 
-    def test_pre_commit_requires_an_isolated_executable_and_version_probe(self):
-        self.assertIn("## Bootstrap-dependent quality gates", self.skill)
-        self.assertIn(
-            '"$RUN_ISOLATED" -- sh -c '
-            "'command -v pre-commit && pre-commit --version'",
-            self.skill,
-        )
-        self.assertIn("path and version", self.skill)
+    def test_host_workflow_exceptions_are_explicit_and_trusted_only(self):
+        self.assertIn("only `git commit` and `git push`", self.skill)
+        self.assertIn("`pre-commit` outside the sandbox", self.skill)
+        self.assertIn("trusted repositories", self.skill)
+        self.assertIn("do not authorize arbitrary host-side executables", self.skill)
+        self.assertIn("permit disabling signing or quality gates", self.skill)
 
-    def test_missing_or_skewed_sandbox_executable_stops_without_fallback(self):
-        self.assertIn("cannot find `pre-commit`", self.skill)
-        self.assertIn("unexpected installation or version", self.skill)
-        self.assertIn("stop and report the discrepancy", self.skill)
-        self.assertIn("Do not silently substitute a host-side command", self.skill)
+    def test_suspicious_artifacts_require_a_separate_workflow(self):
+        self.assertIn("Assessing potentially malicious repositories", self.skill)
+        self.assertIn("host-side exceptions below are not suitable", self.skill)
 
-    def test_offline_bootstrap_failures_stop_before_escalation(self):
-        for dependency in (
-            "hook repository",
-            "hook executable",
-            "language environment",
-        ):
-            with self.subTest(dependency=dependency):
-                self.assertIn(dependency, self.skill)
-        self.assertIn("expected offline-bootstrap failure", self.skill)
-        self.assertIn(
-            "Do not retry with networking, extra mounts, or unsandboxed execution",
-            self.skill,
-        )
+    def test_missing_prerequisites_never_fall_back_to_host_execution(self):
+        self.assertIn("Do not fall back", self.skill)
+        self.assertIn("Never silently relax the sandbox", self.skill)
 
-    def test_cache_guidance_separates_read_only_content_and_ephemeral_state(self):
-        self.assertIn("cache dedicated to the current project", self.skill)
-        self.assertIn("persistent hook content read-only", self.skill)
-        self.assertIn("writable runtime state to ephemeral storage", self.skill)
-        self.assertIn("Never automatically mount the user's global pre-commit cache", self.skill)
-        self.assertIn("cross-project cache poisoning", self.skill)
-
-    def test_standard_launcher_interface_and_authority_remain_restricted(self):
-        self.assertIn("Usage: %s -- command [argument ...]", self.launcher)
+    def test_standard_launcher_has_no_extra_authority(self):
         self.assertIn('[[ $# -ge 2 && $1 == "--" ]] || usage', self.launcher)
-        self.assertIn("--clearenv", self.launcher)
-        self.assertIn("--unshare-all", self.launcher)
+        for option in ("--clearenv", "--unshare-all", "--new-session", "--cap-drop ALL"):
+            self.assertIn(option, self.launcher)
         self.assertNotIn("--share-net", self.launcher)
         self.assertNotIn("PRE_COMMIT_HOME", self.launcher)
-        self.assertIn("standard launcher remains private-home and no-network", self.skill)
+
+    def test_project_writes_and_resource_limitations_are_disclosed(self):
+        self.assertIn("does **not** protect project files", self.skill)
+        self.assertIn("guarantee resource limits", self.skill)
 
 
 if __name__ == "__main__":

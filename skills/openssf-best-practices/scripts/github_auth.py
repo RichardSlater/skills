@@ -7,6 +7,8 @@ import json
 import re
 import subprocess
 from typing import Any
+from pathlib import Path
+from privacy import require_disclosure
 
 ACCOUNT_RE = re.compile(r"^\s*[✓X!]\s+Logged in to \S+ account (?P<login>\S+)")
 ACTIVE_RE = re.compile(r"^\s*- Active account:\s*(?P<active>true|false)\s*$", re.IGNORECASE)
@@ -48,12 +50,12 @@ def account_inventory(hostname: str) -> list[dict[str, Any]]:
     return accounts
 
 
-def viewer_permission(repository: str) -> tuple[str | None, str | None]:
+def viewer_permission(repository: str, hostname: str = "github.com") -> tuple[str | None, str | None]:
     match = REPOSITORY_RE.fullmatch(repository)
     if not match:
         raise ValueError("repository must be owner/name")
     result = run([
-        "gh", "api", "graphql",
+        "gh", "api", "--hostname", hostname, "graphql",
         "-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){viewerPermission}}",
         "-F", f"owner={match.group('owner')}",
         "-F", f"name={match.group('name')}",
@@ -70,7 +72,7 @@ def inspect(hostname: str, repository: str | None) -> dict[str, Any]:
     active = next((account["login"] for account in result["accounts"] if account["active"]), None)
     result["active_account"] = active
     if repository:
-        permission, error = viewer_permission(repository)
+        permission, error = viewer_permission(repository, hostname)
         result["repository"] = repository
         result["active_viewer_permission"] = permission
         if error:
@@ -80,10 +82,12 @@ def inspect(hostname: str, repository: str | None) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hostname", default="github.com")
-    parser.add_argument("--repo", help="optional owner/name repository permission check")
+    parser.add_argument("--hostname", choices=("github.com",), default="github.com")
+    parser.add_argument("--repo", required=True, help="owner/name repository permission check")
+    parser.add_argument("--consent-file", type=Path, required=True)
     args = parser.parse_args()
     try:
+        require_disclosure(args.consent_file, args.repo, "github")
         print(json.dumps(inspect(args.hostname, args.repo), indent=2, sort_keys=True))
     except (RuntimeError, ValueError) as exc:
         print(f"ERROR: {exc}")

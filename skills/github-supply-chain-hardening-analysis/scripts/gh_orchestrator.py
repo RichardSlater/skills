@@ -25,6 +25,10 @@ import time
 from typing import Any, Literal
 
 from scorecard_runner import run_scorecard
+from bounded_process import run as run_process
+from safe_files import read_bytes
+from safe_output import atomic_write_text
+import yaml
 
 try:
     from pydantic import BaseModel, ValidationError
@@ -82,6 +86,11 @@ CANDIDATE_PATTERNS = [
     "pnpm-lock.yaml",
     "yarn.lock",
     "requirements.txt",
+    "uv.lock",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "gradle.lockfile",
     "pyproject.toml",
     "Pipfile.lock",
     "poetry.lock",
@@ -103,8 +112,7 @@ CANDIDATE_PATTERNS = [
     *SECRET_FILE_PATTERNS,
 ]
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
-USES_RE = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)
-SHELL_CONTEXT_RE = re.compile(r"run:\s*(?:\|\s*)?[^\n]*(\$\{\{\s*github\.(event|head_ref|ref|actor|repository|sha)[^}]*\}\})", re.IGNORECASE)
+SHELL_CONTEXT_RE = re.compile(r"\$\{\{\s*github\.(?:event|head_ref)[^}]*\}\}", re.IGNORECASE)
 TOKEN_NAME_RE = re.compile(r"(?i)(api[_-]?key|secret|token|password|passwd|client[_-]?secret|private[_-]?key)\s*[:=]")
 PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
 CLOUD_SECRET_RE = re.compile(r"(?i)(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AZURE_CLIENT_SECRET|GOOGLE_APPLICATION_CREDENTIALS|GCP_SERVICE_ACCOUNT|CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE)")
@@ -164,6 +172,7 @@ class AnalysisResult:
     files_seen: set[str] = field(default_factory=set)
     ecosystems: set[str] = field(default_factory=set)
     workflow_files: list[str] = field(default_factory=list)
+    scan: dict[str, Any] = field(default_factory=lambda: {"complete": True, "skipped": 0, "bytes_read": 0})
 
 
 @dataclass
@@ -184,7 +193,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     target.add_argument("--org", help="GitHub organization name")
     target.add_argument("--user", help="GitHub user account whose owned personal repositories should be analyzed")
     parser.add_argument("--token-source", choices=["auto", "env", "gh"], default="auto", help="Token source: auto checks GITHUB_TOKEN then gh auth token")
-    parser.add_argument("--token", help="Optional GitHub token for local testing only; prefer --token-source or GITHUB_TOKEN")
+    raw_arguments = argv if argv is not None else sys.argv[1:]
+    if any(value == "--token" or value.startswith("--token=") for value in raw_arguments):
+        parser.error("token values in arguments are forbidden; use --token-source")
     parser.add_argument("--output-dir", default="./proposals", help="Directory for proposal JSON files")
     parser.add_argument("--max-concurrency", type=int, default=5, help="Maximum repositories processed concurrently")
     parser.add_argument("--repo-timeout-seconds", type=int, default=600, help="Per-repository timeout")
@@ -219,8 +230,6 @@ def _token_from_gh_cli() -> str | None:
 
 def get_token(args: argparse.Namespace) -> str:
     """Return token from the selected source without printing it."""
-    if args.token:
-        return args.token
     env_token = os.environ.get("GITHUB_TOKEN")
     if args.token_source == "env":
         token = env_token
@@ -229,7 +238,7 @@ def get_token(args: argparse.Namespace) -> str:
     else:
         token = env_token or _token_from_gh_cli()
     if not token:
-        raise RuntimeError("missing token: set GITHUB_TOKEN, run gh auth login, or pass --token for local testing")
+        raise RuntimeError("missing token: set GITHUB_TOKEN or run gh auth login")
     return token
 
 
@@ -250,8 +259,15 @@ def discover_repositories(target_type: Literal["organization", "user"], target_n
             org = gh.get_organization(target_name)
             repos = list(org.get_repos(type="all"))
         else:
-            authenticated_user = gh.get_user()
-            authenticated_login = getattr(authenticated_user, "login", None)
+            try:
+                authenticated_user = gh.get_user()
+                authenticated_login = getattr(authenticated_user, "login", None)
+            except GithubException as exc:
+                if exc.status != 403:
+                    raise
+                # Installation tokens have no /user identity. Public owner listing
+                # still works; selected private repositories require installation APIs.
+                raise RuntimeError("GitHub App installation tokens require organization analysis; personal analysis needs a user token") from exc
             if authenticated_login and authenticated_login.lower() == target_name.lower():
                 repos = list(authenticated_user.get_repos(affiliation="owner"))
             else:
@@ -302,12 +318,20 @@ def _git_askpass_environment(token: str) -> tuple[dict[str, str], Path]:
         helper.close()
         Path(helper.name).unlink(missing_ok=True)
         raise
-    env = os.environ.copy()
-    env.update({
+    # Clone acquisition must not activate ambient hooks/filters or inherit
+    # unrelated credentials. In particular, repository-controlled LFS endpoints
+    # must never receive the askpass token through a host smudge filter.
+    env = {
+        "PATH": os.defpath,
+        "LANG": "C.UTF-8",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_COUNT": "0",
+        "GIT_LFS_SKIP_SMUDGE": "1",
         "GIT_ASKPASS": str(path),
         "GIT_ASKPASS_TOKEN": token,
         "GIT_TERMINAL_PROMPT": "0",
-    })
+    }
     return env, path
 
 
@@ -315,13 +339,18 @@ def _sanitize_message(message: str, token: str) -> str:
     return message.replace(token, "[REDACTED_TOKEN]") if token else message
 
 
-def clone_repository(repo: RepoMetadata, token: str, destination: Path, clone_depth: int) -> None:
+def clone_repository(repo: RepoMetadata, token: str, destination: Path, clone_depth: int, timeout: float = 600) -> None:
     """Clone one repository into destination using argument-list subprocess calls."""
-    if not repo.clone_url.startswith("https://"):
-        raise ValueError("only HTTPS clone URLs are supported")
+    if repo.clone_url.lower() != f"https://github.com/{repo.full_name}.git".lower():
+        raise ValueError("clone URL must match the canonical github.com repository identity")
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        raise ValueError("Git is required for cloning")
     env, askpass_path = _git_askpass_environment(token)
     cmd = [
-        "git",
+        git_executable,
+        "-c", "core.hooksPath=" + os.devnull,
+        "-c", "core.fsmonitor=false",
         "clone",
         "--depth",
         str(clone_depth),
@@ -332,7 +361,7 @@ def clone_repository(repo: RepoMetadata, token: str, destination: Path, clone_de
         cmd.extend(["--branch", repo.default_branch])
     cmd.extend([repo.clone_url, str(destination)])
     try:
-        completed = subprocess.run(cmd, capture_output=True, text=True, env=env, shell=False, check=False)
+        completed = run_process(cmd, env=env, timeout=timeout)
     finally:
         askpass_path.unlink(missing_ok=True)
     if completed.returncode != 0:
@@ -354,33 +383,34 @@ def _looks_like_kubernetes_yaml(text: str) -> bool:
     return bool(re.search(r"(?m)^kind:\s*(Deployment|StatefulSet|DaemonSet|Pod|Service|Ingress|Job|CronJob|ConfigMap|Secret)\b", text))
 
 
-def iter_candidate_files(root: Path, max_file_bytes: int) -> list[Path]:
+def iter_candidate_files(root: Path, max_file_bytes: int, deadline: float | None = None) -> list[Path]:
     """Return candidate files while skipping generated/vendor directories and huge files."""
     candidates: list[Path] = []
+    encountered = 0
     for current_root, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        encountered += len(dirnames) + len(filenames)
+        if encountered > 10000:
+            raise ValueError("repository inventory incomplete: 10000-entry limit exceeded")
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("repository inventory deadline exceeded")
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not (Path(current_root) / d).is_symlink()]
         current = Path(current_root)
         for filename in filenames:
             path = current / filename
-            try:
-                if path.stat().st_size > max_file_bytes:
-                    continue
-            except OSError:
-                continue
             rel = _relative_posix(root, path)
             lower = rel.lower()
-            if _matches_any(rel, CANDIDATE_PATTERNS) or lower.endswith((".yaml", ".yml")):
+            if (_matches_any(rel, CANDIDATE_PATTERNS) or _matches_any(filename, CANDIDATE_PATTERNS)
+                    or lower.endswith((".yaml", ".yml"))):
                 candidates.append(path)
     return sorted(candidates)
 
 
-def read_text_limited(path: Path, max_file_bytes: int) -> str | None:
-    """Read a bounded text file; return None for large/binary/unreadable files."""
+def read_text_limited(path: Path, max_file_bytes: int, root: Path | None = None) -> str | None:
+    """Read bounded regular input without links, special files or scope escapes."""
+    root = root or path.parent.absolute()
     try:
-        if path.stat().st_size > max_file_bytes:
-            return None
-        data = path.read_bytes()
-    except OSError:
+        data = read_bytes(root, path.absolute().relative_to(root), max_file_bytes)
+    except (OSError, ValueError):
         return None
     if b"\x00" in data[:4096]:
         return None
@@ -418,26 +448,45 @@ def _detect_ecosystems(rel: str, result: AnalysisResult) -> None:
 
 def _analyze_workflow(rel: str, text: str, result: AnalysisResult) -> None:
     result.workflow_files.append(rel)
-    if not re.search(r"(?m)^permissions\s*:", text):
+    try:
+        document = yaml.load(text, Loader=yaml.BaseLoader)
+        if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
+            raise ValueError("workflow lacks a jobs mapping")
+    except (yaml.YAMLError, ValueError):
+        _add(result, Finding("github_actions", "medium", rel, "review", "Invalid workflow YAML",
+             "Workflow could not be parsed.", "Repair and semantically validate the workflow.",
+             "Invalid input cannot provide complete workflow evidence."))
+        result.scan["complete"] = False
+        return
+    steps = [step for job in document["jobs"].values() if isinstance(job, dict)
+             for step in (job.get("steps", []) if isinstance(job.get("steps", []), list) else [])
+             if isinstance(step, dict)]
+    uses_values = [str(step["uses"]) for step in steps if "uses" in step]
+    uses_values += [str(job["uses"]) for job in document["jobs"].values()
+                    if isinstance(job, dict) and "uses" in job]
+    if "permissions" not in document:
         _add(result, Finding(
             "github_actions", "medium", rel, "modify", "Missing explicit workflow permissions",
             "No top-level permissions block detected.",
             "permissions:\n  contents: read\n",
             "Heuristic finding: set default GITHUB_TOKEN permissions to least privilege and elevate per job only when required.",
         ))
-    elif re.search(r"(?m)^permissions\s*:\s*(write-all|read-all)", text) or re.search(r"(?m)^\s*contents:\s*write\b", text):
+    elif (document["permissions"] == "write-all" or
+          isinstance(document["permissions"], dict) and "write" in document["permissions"].values()):
         _add(result, Finding(
             "github_actions", "medium", rel, "review", "Broad workflow permissions",
             "Workflow appears to request broad or write permissions.",
             "Use top-level `permissions: { contents: read }` and grant narrow job-level writes only where justified.",
             "Heuristic finding: broad GITHUB_TOKEN permissions increase blast radius if workflow steps or dependencies are compromised.",
         ))
-    for match in USES_RE.finditer(text):
-        uses = match.group(1).strip().strip('"\'')
-        if "@" not in uses or uses.startswith("./"):
+    for uses in uses_values:
+        uses = uses.strip()
+        if uses.startswith("./"):
             continue
-        ref = uses.rsplit("@", 1)[1]
-        if ref in {"main", "master", "develop", "dev", "HEAD"} or not FULL_SHA_RE.match(ref):
+        ref = uses.rsplit("@", 1)[-1]
+        pinned = (bool(re.fullmatch(r"sha256:[0-9a-fA-F]{64}", ref)) if uses.startswith("docker://")
+                  else "@" in uses and bool(FULL_SHA_RE.fullmatch(ref)))
+        if not pinned:
             _add(result, Finding(
                 "github_actions", "high" if ref in {"main", "master"} else "medium", rel, "modify", "Mutable action reference",
                 "A third-party GitHub Action reference is not pinned to a full commit SHA.",
@@ -451,7 +500,7 @@ def _analyze_workflow(rel: str, text: str, result: AnalysisResult) -> None:
             "Review whether untrusted pull request code can influence checked-out code, scripts, labels, comments, artifacts, or secrets.",
             "Heuristic finding: pull_request_target runs with base-repository privileges and can expose write tokens or secrets if misused.",
         ))
-    if SHELL_CONTEXT_RE.search(text):
+    if any(SHELL_CONTEXT_RE.search(str(step.get("run", ""))) for step in steps):
         _add(result, Finding(
             "github_actions", "medium", rel, "review", "Untrusted GitHub context in shell command",
             "A run step appears to interpolate github.* context directly.",
@@ -489,12 +538,20 @@ def _analyze_workflow(rel: str, text: str, result: AnalysisResult) -> None:
 
 
 def _analyze_dockerfile(rel: str, text: str, result: AnalysisResult) -> None:
+    stages = set()
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped.upper().startswith("FROM "):
             continue
-        image = stripped.split()[1]
-        if ":latest" in image or (":" not in image and "@sha256:" not in image):
+        parts = stripped.split()[1:]
+        parts = [part for part in parts if not part.startswith("--platform=")]
+        if not parts:
+            continue
+        image = parts[0]
+        external = image.lower() != "scratch" and image.lower() not in stages
+        if len(parts) >= 3 and parts[1].lower() == "as":
+            stages.add(parts[2].lower())
+        if external and not re.search(r"@sha256:[0-9a-fA-F]{64}$", image):
             _add(result, Finding(
                 "dependencies", "medium", rel, "modify", "Unpinned Docker base image",
                 "A Docker base image reference is mutable or lacks an immutable digest.",
@@ -507,7 +564,7 @@ def _analyze_secret_indicators(rel: str, text: str, result: AnalysisResult) -> N
     name = Path(rel).name
     if _matches_any(name, SECRET_FILE_PATTERNS) or _matches_any(rel, SECRET_FILE_PATTERNS):
         _add(result, Finding(
-            "secrets", "critical", rel, "review", "Sensitive filename detected",
+            "secrets", "medium", rel, "review", "Sensitive filename requires verification",
             f"Sensitive-looking file path: {rel}",
             "Remove real secrets from source control, rotate affected credentials, and replace with secret manager/OIDC references.",
             "Heuristic finding: the file name suggests possible credentials. Values are intentionally not copied into this proposal.",
@@ -528,15 +585,23 @@ def _analyze_secret_indicators(rel: str, text: str, result: AnalysisResult) -> N
         ))
 
 
-def analyze_repository(repo_path: Path, max_file_bytes: int) -> AnalysisResult:
+def analyze_repository(repo_path: Path, max_file_bytes: int, deadline: float | None = None) -> AnalysisResult:
     """Run deterministic local static heuristics against one cloned repository."""
     result = AnalysisResult()
     file_texts: dict[str, str] = {}
-    for path in iter_candidate_files(repo_path, max_file_bytes):
+    for path in iter_candidate_files(repo_path, max_file_bytes, deadline):
         rel = _relative_posix(repo_path, path)
-        text = read_text_limited(path, max_file_bytes)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("repository analysis deadline exceeded")
+        if result.scan["bytes_read"] >= 100 * 1024 * 1024 or len(result.files_seen) >= 10000:
+            result.scan["complete"] = False
+            break
+        text = read_text_limited(path, max_file_bytes, repo_path)
         if text is None:
+            result.scan["complete"] = False
+            result.scan["skipped"] += 1
             continue
+        result.scan["bytes_read"] += len(text.encode("utf-8"))
         if rel.lower().endswith((".yaml", ".yml")) and not (_matches_any(rel, CANDIDATE_PATTERNS) or _looks_like_kubernetes_yaml(text)):
             continue
         result.files_seen.add(rel)
@@ -627,7 +692,7 @@ def analyze_repository(repo_path: Path, max_file_bytes: int) -> AnalysisResult:
         "Heuristic recommendation: repository settings require API/settings verification and manual rollout planning.",
     ))
     _add(result, Finding(
-        "secrets", "high", "GITHUB_REPOSITORY_SETTINGS", "configure", "Secret scanning and push protection review",
+        "secrets", "low", "GITHUB_REPOSITORY_SETTINGS", "configure", "Secret scanning and push protection review",
         "Repository settings were not mutated by this read-only analysis.",
         "Enable secret scanning, push protection, and custom patterns for organization-specific credentials where available.",
         "Heuristic recommendation: secret scanning and push protection reduce accidental credential exposure.",
@@ -661,7 +726,7 @@ def summarize_scorecard(execution: dict[str, Any]) -> dict[str, Any]:
             # This is a prioritization band derived from the numeric check score,
             # not a risk label emitted by Scorecard itself.
             risk = "unknown"
-            if isinstance(score, (int, float)):
+            if isinstance(score, (int, float)) and score >= 0:
                 risk = "critical" if score <= 2 else "high" if score <= 5 else "medium" if score <= 7 else "low"
             checks.append({
                 "name": check.get("name"),
@@ -689,7 +754,11 @@ def build_proposal(repo: RepoMetadata, analysis: AnalysisResult, scorecard_evide
             "Review repository rulesets, branch protection, secret scanning, dependency security, and release controls.",
             "Heuristic fallback: settings and organization controls may not be visible from a local clone.",
         )]
-    estimated = max((f.risk for f in findings), key=_risk_rank)
+    estimated = max((f.risk for f in findings if f.action != "configure"), key=_risk_rank, default="low")
+    score = scorecard_evidence.get("overall_score")
+    if isinstance(score, (int, float)) and score >= 0:
+        score_risk = "high" if score <= 2 else "medium" if score <= 5 else "low"
+        estimated = max(estimated, score_risk, key=_risk_rank)
     changes = [ProposalChange(
         file_path=f.file_path,
         action=f.action,
@@ -733,10 +802,22 @@ def write_proposal(proposal: OpenSpecProposal, output_dir: Path) -> Path:
     # Re-validate to catch accidental construction changes across pydantic versions.
     data = _model_to_dict(proposal)
     validated = OpenSpecProposal(**data)
-    output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / f"{_safe_repo_name(validated.repository_full_name)}.json"
-    path.write_text(json.dumps(_model_to_dict(validated), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_text(Path("/"), path.absolute().as_posix().lstrip("/"),
+                      json.dumps(_model_to_dict(validated), indent=2, sort_keys=True) + "\n")
     return path
+
+
+async def joined_thread(function, *arguments):
+    """Join bounded thread work even if the surrounding coroutine is cancelled."""
+    task = asyncio.create_task(asyncio.to_thread(function, *arguments))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        try:
+            await task
+        finally:
+            raise
 
 
 async def _process_repository_impl(
@@ -748,20 +829,25 @@ async def _process_repository_impl(
     scorecard_timeout_seconds: int,
     container_runtime: str | None,
     allow_scorecard_container: bool,
+    repo_timeout_seconds: int,
 ) -> RepoProcessResult:
     started = time.monotonic()
+    deadline = started + repo_timeout_seconds
     temp_dir = Path(tempfile.mkdtemp(prefix="gh-org-supply-chain-"))
     clone_dir = temp_dir / "repo"
     try:
-        await asyncio.to_thread(clone_repository, repo, token, clone_dir, clone_depth)
-        analysis = await asyncio.to_thread(analyze_repository, clone_dir, max_file_bytes)
+        await joined_thread(clone_repository, repo, token, clone_dir, clone_depth,
+                                max(0.001, deadline - time.monotonic()))
+        analysis = await joined_thread(analyze_repository, clone_dir, max_file_bytes, deadline)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("repository deadline exceeded")
         scorecard_path = output_dir / "scorecards" / f"{_safe_repo_name(repo.full_name)}.json"
-        scorecard_execution = await asyncio.to_thread(
+        scorecard_execution = await joined_thread(
             run_scorecard,
             repo.full_name,
             scorecard_path,
             token,
-            scorecard_timeout_seconds,
+            min(scorecard_timeout_seconds, max(0.001, deadline - time.monotonic())),
             container_runtime,
             allow_scorecard_container,
         )
@@ -773,8 +859,11 @@ async def _process_repository_impl(
                 "Install Scorecard or start Docker, Podman, or nerdctl, then rerun the analysis.",
                 "Scorecard is a primary evidence source; this proposal contains heuristic findings only when its execution fails.",
             ))
+        if time.monotonic() >= deadline or scorecard_evidence["status"] == "timed_out":
+            raise TimeoutError("repository deadline exceeded")
+        scorecard_evidence["local_scan"] = analysis.scan
         proposal = build_proposal(repo, analysis, scorecard_evidence)
-        proposal_path = await asyncio.to_thread(write_proposal, proposal, output_dir)
+        proposal_path = await joined_thread(write_proposal, proposal, output_dir)
         return RepoProcessResult(
             repo.full_name,
             "success",
@@ -809,16 +898,15 @@ async def process_repository(
             print(f"Worker skip: {repo.full_name} (dry-run)", flush=True)
             return RepoProcessResult(repo.full_name, "skipped", error="dry-run", duration_seconds=0.0)
         try:
-            result = await asyncio.wait_for(
-                _process_repository_impl(
-                    repo, token, output_dir, clone_depth, max_file_bytes,
-                    scorecard_timeout_seconds, container_runtime, allow_scorecard_container,
-                ),
-                timeout=repo_timeout_seconds,
+            # Deadline-bounded operations are joined before workspace cleanup.
+            result = await _process_repository_impl(
+                repo, token, output_dir, clone_depth, max_file_bytes,
+                scorecard_timeout_seconds, container_runtime, allow_scorecard_container,
+                repo_timeout_seconds,
             )
             print(f"Worker success: {repo.full_name}", flush=True)
             return result
-        except asyncio.TimeoutError:
+        except (TimeoutError, subprocess.TimeoutExpired):
             print(f"Worker timeout: {repo.full_name}", flush=True)
             return RepoProcessResult(repo.full_name, "timeout", error=f"timed out after {repo_timeout_seconds}s", duration_seconds=time.monotonic() - started)
         except (ValidationError, ValueError) as exc:
@@ -855,12 +943,8 @@ async def main_async(args: argparse.Namespace) -> int:
         raise RuntimeError("--scorecard-timeout-seconds must be at least 1")
     if args.max_repositories is not None and args.max_repositories < 1:
         raise RuntimeError("--max-repositories must be at least 1 when provided")
-    output_dir = Path(args.output_dir).expanduser().resolve()
-    try:
-        if not args.dry_run:
-            output_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise RuntimeError(f"output directory creation failure: {output_dir}: {exc}") from exc
+    # Keep the original path components so no-follow writes can reject aliases.
+    output_dir = Path(args.output_dir).expanduser().absolute()
 
     target_type: Literal["organization", "user"] = "organization" if args.org else "user"
     target_name = args.org or args.user
