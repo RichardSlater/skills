@@ -82,10 +82,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("contents: write", workflow)
         self.assertIn("attestations: write", workflow)
         self.assertIn("id-token: write", workflow)
-        self.assertIn("actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661", workflow)
+        # Dependabot may update reviewed pins; enforce immutability, not an old release.
+        self.assertRegex(workflow, r"actions/attest-build-provenance@[0-9a-f]{40}(?:\s|$)")
         self.assertIn("persist-credentials: false", workflow)
         self.assertIn("fetch-depth: 0", workflow)
-        self.assertIn("actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349", workflow)
+        self.assertRegex(workflow, r"actions/create-github-app-token@[0-9a-f]{40}(?:\s|$)")
         self.assertIn("vars.RELEASE_APP_ID", workflow)
         self.assertIn("secrets.RELEASE_APP_PRIVATE_KEY", workflow)
         self.assertIn("steps.release-app-token.outputs.token", workflow)

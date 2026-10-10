@@ -13,6 +13,6 @@ Criterion answers use a criterion status plus an optional or schema-required jus
 
 Exact status values are `Met`, `Unmet`, `N/A`, and `?`. `N/A` is valid only when the schema permits it. `?` is an unanswered value and does not claim compliance.
 
-Proposal generation supports the official metal-series sections `passing`, `silver`, `gold`, and `choose`; it does not generate OSPS Baseline proposals. Every proposal records the schema version and upstream commit in its local assessment metadata.
+Proposal URL generation supports `passing`, `silver` and `gold`, not `choose` or OSPS Baseline proposals. The bundled schema version and upstream commit identify the validation baseline; retain that provenance alongside assessment evidence.
 
 Metadata fields supported by this helper are `name`, `description`, `license`, and `implementation_languages`.

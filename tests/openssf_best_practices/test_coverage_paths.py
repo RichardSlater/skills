@@ -32,7 +32,7 @@ class AnalyzeCliPaths(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    out=Path(temp)/'out.json'
    with patch.object(analyze,'discover_ids',return_value={'enrolment':'identified'}),patch.object(sys,'argv',['x','discover','--output',str(out)]): self.assertEqual(analyze.main(),0)
-   with patch.object(analyze,'fetch_project',return_value={'id':1,'repo_url':'https://github.com/a/b'}),patch.object(sys,'argv',['x','fetch','--project-id','1','--output',str(out)]): self.assertEqual(analyze.main(),0)
+   with patch.object(analyze,'require_disclosure',return_value={}),patch.object(analyze,'fetch_project',return_value={'id':1,'repo_url':'https://github.com/a/b'}),patch.object(sys,'argv',['x','fetch','--project-id','1','--repo','a/b','--consent-file','/consent','--output',str(out)]): self.assertEqual(analyze.main(),0)
    answers=Path(temp)/'a.json'; answers.write_text('{"floss_license_status":"Met"}')
    with patch.object(sys,'argv',['x','proposal-url','--project-id','1','--section','passing','--answers',str(answers)]): self.assertEqual(analyze.main(),0)
  def test_summarize_with_scorecard(self):
@@ -60,28 +60,28 @@ class ScorecardPaths(unittest.TestCase):
   self.assertEqual(score.redact('abc', 'abc'),'[REDACTED_TOKEN]')
   with tempfile.TemporaryDirectory() as temp:
    out=Path(temp)/'x.json'; cp=subprocess.CompletedProcess([],0,'{}','')
-   with patch.object(score.subprocess,'run',return_value=cp): self.assertEqual(score.run_json(['x'],out,{},99,lambda:0),(True,'',False))
+   with patch.object(score,'run_process',return_value=cp): self.assertEqual(score.run_json(['x'],out,{},99,lambda:0),(True,'',False))
    cp=subprocess.CompletedProcess([],1,'','bad')
-   with patch.object(score.subprocess,'run',return_value=cp): self.assertEqual(score.run_json(['x'],out,{},99,lambda:0),(False,'bad',False))
+   with patch.object(score,'run_process',return_value=cp): self.assertEqual(score.run_json(['x'],out,{},99,lambda:0),(False,'bad',False))
  def test_execute_local_paths(self):
   with tempfile.TemporaryDirectory() as temp:
-   with patch.object(score,'discover_token',return_value=(None,None)),patch.object(score.shutil,'which',return_value='/bin/scorecard'),patch.object(score,'run_json',return_value=(False,'bad',False)):
+   with patch.object(score,'discover_token',return_value=(None,None)),patch.object(score.shutil,'which',return_value=sys.executable),patch.object(score,'run_json',return_value=(False,'bad',False)):
     self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None)['status'],'failed')
 
 class ScorecardContainerPaths(unittest.TestCase):
  def test_container_pull_and_run_paths(self):
   with tempfile.TemporaryDirectory() as temp:
    pull=subprocess.CompletedProcess([],0,'','')
-   with patch.object(score,'discover_token',return_value=('tok','env')),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score.subprocess,'run',return_value=pull),patch.object(score,'run_json',return_value=(True,'',False)):
+   with patch.object(score,'discover_token',return_value=('tok','env')),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score,'run_process',return_value=pull),patch.object(score,'run_json',return_value=(True,'',False)):
     self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None,True)['status'],'success')
    bad=subprocess.CompletedProcess([],1,'','bad')
-   with patch.object(score,'discover_token',return_value=(None,None)),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score.subprocess,'run',return_value=bad):
+   with patch.object(score,'discover_token',return_value=(None,None)),patch.object(score.shutil,'which',return_value=None),patch.object(score,'working_runtime',return_value=['/bin/docker']),patch.object(score,'run_process',return_value=bad):
     self.assertEqual(score.execute('a/b',Path(temp)/'x',5,None,True)['status'],'failed')
 
 class ScorecardCliPaths(unittest.TestCase):
  def test_main_status_exits(self):
-  with patch.object(score,'execute',return_value={'status':'timed_out'}),patch.object(sys,'argv',['x','--repo','a/b','--output','/tmp/x']): self.assertEqual(score.main(),4)
-  with patch.object(score,'execute',return_value={'status':'failed'}),patch.object(sys,'argv',['x','--repo','a/b','--output','/tmp/x']): self.assertEqual(score.main(),3)
+  with patch.object(score,'require_disclosure',return_value={}),patch.object(score,'execute',return_value={'status':'timed_out'}),patch.object(sys,'argv',['x','--repo','a/b','--consent-file','/consent','--output','/tmp/x']): self.assertEqual(score.main(),4)
+  with patch.object(score,'require_disclosure',return_value={}),patch.object(score,'execute',return_value={'status':'failed'}),patch.object(sys,'argv',['x','--repo','a/b','--consent-file','/consent','--output','/tmp/x']): self.assertEqual(score.main(),3)
 
 class FilesystemApprovalPaths(unittest.TestCase):
  def test_safe_and_approval_errors(self):

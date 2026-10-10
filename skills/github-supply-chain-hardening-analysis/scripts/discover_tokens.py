@@ -174,6 +174,16 @@ def inspect_token(candidate: TokenCandidate, repo_sample_limit: int) -> dict[str
     result["rate_limit_remaining"] = headers.get("x-ratelimit-remaining") or headers.get("X-RateLimit-Remaining")
     result["oauth_scopes"] = _scope_list(headers, "X-OAuth-Scopes")
     result["accepted_oauth_scopes_for_user_endpoint"] = _scope_list(headers, "X-Accepted-OAuth-Scopes")
+    if status == 403:
+        app_status, _, installation = _request(candidate.token, "/installation/repositories", {"per_page": min(100, repo_sample_limit)})
+        if app_status == 200 and isinstance(installation, dict):
+            result["valid"] = True
+            result["token_type"] = "GitHub App installation"
+            result["account"] = None
+            result["repository_access_summary"] = _repo_permission_summary(installation.get("repositories", []))
+            result["repository_access_summary"]["total_visible"] = installation.get("total_count")
+            result["note"] = "Installation tokens do not have a /user identity; use organization analysis."
+            return result
     if status >= 400:
         result["error"] = f"GitHub API returned HTTP {status} for /user"
         if isinstance(user, dict) and user.get("message"):
@@ -226,6 +236,8 @@ def inspect_token(candidate: TokenCandidate, repo_sample_limit: int) -> dict[str
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.repo_sample_limit < 1 or args.repo_sample_limit > 1000:
+        raise SystemExit("--repo-sample-limit must be between 1 and 1000")
     candidates = _token_candidates()
     output: dict[str, Any] = {
         "tokens_discovered": len(candidates),

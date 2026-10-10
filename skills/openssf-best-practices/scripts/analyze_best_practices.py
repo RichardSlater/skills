@@ -18,7 +18,9 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from safe_output import atomic_write_text
-from privacy import PrivacyError, disclosure_record
+from privacy import PrivacyError, require_disclosure
+from safe_files import read_bytes
+from approval import load_approval, require_approved_path, require_clean_tree
 from validate_best_practices import load_schema, validate
 
 BASE = "https://www.bestpractices.dev"
@@ -59,6 +61,16 @@ def repo_metadata() -> dict[str, Any]:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "gh repo view failed")
     return json.loads(result.stdout)
+
+
+def local_repo_metadata() -> dict[str, Any]:
+    """Resolve local identity without contacting GitHub or assuming visibility."""
+    remote = run(["git", "remote", "get-url", "origin"])
+    if remote.returncode:
+        raise RuntimeError("a canonical GitHub origin is required for discovery")
+    host, owner, name = normalize_github_repo_url(remote.stdout.strip())
+    return {"nameWithOwner": f"{owner}/{name}", "url": f"https://{host}/{owner}/{name}",
+            "isPrivate": None, "privacy_verified": False}
 
 
 def assessment_output_is_ignored(repository: Path, relative_output: Path) -> bool:
@@ -123,26 +135,29 @@ def scan_project_ids(
             metadata["skipped"]["unreadable"] = (
                 metadata["skipped"].get("unreadable", 0) + 1
             )
+            metadata["limits_hit"] = True
             continue
         if full.is_symlink():
             metadata["skipped"]["symlink"] = metadata["skipped"].get("symlink", 0) + 1
+            metadata["limits_hit"] = True
             continue
         if stat_result.st_size > MAX_SCAN_FILE_BYTES:
             metadata["skipped"]["oversized"] = (
                 metadata["skipped"].get("oversized", 0) + 1
             )
+            metadata["limits_hit"] = True
             continue
         remaining_bytes = MAX_SCAN_TOTAL_BYTES - metadata["bytes_read"]
         if remaining_bytes <= 0:
             metadata["limits_hit"] = True
             break
         try:
-            with full.open("rb") as stream:
-                raw = stream.read(remaining_bytes + 1)
-        except OSError:
+            raw = read_bytes(root.absolute(), path, min(MAX_SCAN_FILE_BYTES, remaining_bytes))
+        except (OSError, ValueError):
             metadata["skipped"]["unreadable"] = (
                 metadata["skipped"].get("unreadable", 0) + 1
             )
+            metadata["limits_hit"] = True
             continue
         if len(raw) > remaining_bytes:
             metadata["limits_hit"] = True
@@ -217,13 +232,13 @@ def verify_project_candidates(
     return verified, rejected
 
 
-def discover_ids(private_consent: str | None = None) -> dict[str, Any]:
-    meta = repo_metadata()
-    consent = (
-        disclosure_record(meta, "bestpractices.dev", private_consent)
-        if meta.get("isPrivate", False) and private_consent
-        else None
-    )
+def discover_ids(consent_file: Path | None = None) -> dict[str, Any]:
+    meta = local_repo_metadata()
+    consent = None
+    if consent_file:
+        require_disclosure(consent_file, meta["nameWithOwner"], "github")
+        meta = repo_metadata()
+        consent = require_disclosure(consent_file, meta["nameWithOwner"], "bestpractices.dev")
     ids, evidence, scan = scan_project_ids(tracked_text_files())
 
     for proposal in (
@@ -240,7 +255,7 @@ def discover_ids(private_consent: str | None = None) -> dict[str, Any]:
             )
 
     lookup: dict[str, Any] = {"status": "not_requested"}
-    if not meta.get("isPrivate", False) or consent:
+    if consent:
         lookup = lookup_redirect(meta["url"])
         if lookup.get("project_id"):
             ids.add(int(lookup["project_id"]))
@@ -254,14 +269,16 @@ def discover_ids(private_consent: str | None = None) -> dict[str, Any]:
 
     verified_ids: list[int] = []
     rejected_candidates: list[dict[str, Any]] = []
-    if not meta.get("isPrivate", False) or consent:
+    if consent:
         verified_ids, rejected_candidates = verify_project_candidates(ids, meta["url"])
     return {
         "repository": meta,
         "project_ids": verified_ids,
+        "unverified_project_ids": sorted(ids - set(verified_ids)),
+        "verification_state": "requested" if consent else "not_requested",
         "enrolment": (
             "indeterminate"
-            if scan["limits_hit"]
+            if scan["limits_hit"] or (ids and not consent) or rejected_candidates or lookup.get("status") == "failed"
             else "identified"
             if len(verified_ids) == 1
             else "ambiguous"
@@ -426,7 +443,7 @@ def proposal_url(project_id: int, section: str, answers: dict[str, Any]) -> str:
 def preflight() -> int:
     """Check dependencies without assuming a ``python`` command exists."""
     python_version = tuple(sys.version_info[:2])
-    required = ["git", "gh"]
+    required = ["git"]
     missing = [name for name in required if not shutil.which(name)]
     executors = [
         name
@@ -448,8 +465,8 @@ def preflight() -> int:
             file=sys.stderr,
         )
         return 3
-    if missing or not executors:
-        unavailable = missing or ["scorecard, podman, docker, or nerdctl"]
+    if missing:
+        unavailable = missing
         print(
             "ERROR: preflight missing required tool(s): "
             + ", ".join(unavailable)
@@ -461,9 +478,27 @@ def preflight() -> int:
     return 0
 
 
-def write_json(path: Path, data: Any) -> None:
-    """Write through the shared atomic output API (never direct Path writes)."""
-    root = path.parent.resolve()
+def validate_output_destination(path: Path, approval_path: Path | None = None) -> None:
+    """Enforce repository-local approval/ignore policy before any execution."""
+    identity = run(["git", "rev-parse", "--show-toplevel"])
+    if identity.returncode == 0:
+        repository = Path(identity.stdout.strip()).absolute()
+        try:
+            relative = path.absolute().relative_to(repository)
+        except ValueError:
+            pass
+        else:
+            if approval_path is None:
+                raise ValueError("repository-local assessment output requires explicit apply approval")
+            record = load_approval(approval_path, repository)
+            require_approved_path(record, relative.as_posix())
+            if not assessment_output_is_ignored(repository, relative):
+                raise ValueError("repository-local assessment output must be ignored")
+
+
+def write_json(path: Path, data: Any, approval_path: Path | None = None) -> None:
+    validate_output_destination(path, approval_path)
+    root = path.parent.absolute()
     atomic_write_text(
         root,
         path.name,
@@ -479,11 +514,15 @@ def main() -> int:
 
     discover = sub.add_parser("discover")
     discover.add_argument("--output", type=Path)
-    discover.add_argument("--private-consent", choices=("bestpractices.dev",))
+    discover.add_argument("--consent-file", type=Path)
+    discover.add_argument("--approval", type=Path)
 
     fetch = sub.add_parser("fetch")
     fetch.add_argument("--project-id", type=int, required=True)
     fetch.add_argument("--output", type=Path, required=True)
+    fetch.add_argument("--repo", required=True)
+    fetch.add_argument("--consent-file", type=Path, required=True)
+    fetch.add_argument("--approval", type=Path)
 
     summarize = sub.add_parser("summarize")
     summarize.add_argument("--project", type=Path)
@@ -498,20 +537,26 @@ def main() -> int:
     proposal.add_argument("--answers", type=Path, required=True)
     proposal.add_argument("--fallback-output", type=Path)
 
+    apply = sub.add_parser("apply-file")
+    apply.add_argument("--source", type=Path, required=True)
+    apply.add_argument("--repository", type=Path, required=True)
+    apply.add_argument("--destination", required=True)
+    apply.add_argument("--approval", type=Path, required=True)
     args = parser.parse_args()
 
     try:
         if args.command == "preflight":
             return preflight()
         if args.command == "discover":
-            data = discover_ids(args.private_consent)
+            data = discover_ids(args.consent_file)
             if args.output:
-                write_json(args.output, data)
+                write_json(args.output, data, args.approval)
             print(json.dumps(data, indent=2, sort_keys=True))
             return 0 if data["enrolment"] != "ambiguous" else 2
         if args.command == "fetch":
-            data = fetch_project(args.project_id)
-            write_json(args.output, data)
+            require_disclosure(args.consent_file, args.repo, "bestpractices.dev")
+            data = validate_project_response(fetch_project(args.project_id), f"https://github.com/{args.repo}")
+            write_json(args.output, data, args.approval)
             print(json.dumps(project_summary(data), indent=2, sort_keys=True))
             return 0
         if args.command == "summarize":
@@ -534,6 +579,19 @@ def main() -> int:
                 result["evidence_state"]["scorecard"] = "not_requested"
             write_json(args.output, result)
             print(json.dumps(result, indent=2, sort_keys=True))
+            return 0
+        if args.command == "apply-file":
+            repository = args.repository.absolute()
+            record = load_approval(args.approval, repository)
+            require_approved_path(record, args.destination)
+            require_clean_tree(repository)
+            content = read_bytes(args.source.parent.absolute(), Path(args.source.name), 1024 * 1024).decode("utf-8")
+            if args.destination in {".bestpractices.json", ".project.d/bestpractices.json"}:
+                errors = validate(json.loads(content))
+                if errors:
+                    raise ValueError("invalid automation proposal: " + "; ".join(errors))
+            atomic_write_text(repository, args.destination, content)
+            print("Approved file applied")
             return 0
         if args.command == "proposal-url":
             answers = json.loads(args.answers.read_text(encoding="utf-8"))

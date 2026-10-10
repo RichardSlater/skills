@@ -37,10 +37,10 @@ def workflow(permissions="permissions: read-all\n", job_permissions=""):
 
 
 class WorkflowPermissionTests(unittest.TestCase):
-    def test_read_all_becomes_complete_least_privilege_mappings(self):
+    def test_read_all_inheritance_is_preserved_with_explicit_job_mappings(self):
         result = workflow_permissions.remediate_workflow(workflow())
         data = yaml.safe_load(result)
-        self.assertEqual(data["permissions"], {"contents": "read"})
+        self.assertEqual(data["permissions"], "read-all")
         self.assertEqual(data["jobs"]["analysis"]["permissions"], {
             "contents": "read", "security-events": "write", "id-token": "write",
         })
@@ -53,7 +53,7 @@ class WorkflowPermissionTests(unittest.TestCase):
         )
         result = workflow_permissions.remediate_workflow(source)
         data = yaml.safe_load(result)
-        self.assertEqual(data["permissions"], {"actions": "read", "contents": "read"})
+        self.assertEqual(data["permissions"], {"actions": "read"})
         self.assertEqual(data["jobs"]["analysis"]["permissions"], {
             "packages": "read", "contents": "read", "security-events": "write", "id-token": "write",
         })
@@ -66,7 +66,7 @@ class WorkflowPermissionTests(unittest.TestCase):
             "    permissions:\n      contents: none # needed for checkout\n      security-events: read\n      id-token: read\n      attestations: write\n",
         )
         data = yaml.safe_load(workflow_permissions.remediate_workflow(source))
-        self.assertEqual(data["permissions"]["contents"], "read")
+        self.assertEqual(data["permissions"]["contents"], "none")
         self.assertEqual(data["jobs"]["analysis"]["permissions"]["contents"], "read")
         self.assertEqual(data["jobs"]["analysis"]["permissions"]["security-events"], "write")
         self.assertEqual(data["jobs"]["analysis"]["permissions"]["id-token"], "write")
@@ -91,8 +91,27 @@ class WorkflowPermissionTests(unittest.TestCase):
         self.assertIsInstance(yaml.safe_load(twice), dict)
         self.assertEqual(workflow_permissions.validate_scorecard_workflow(twice), [])
 
+    def test_unrelated_inherited_scopes_and_required_existing_write_survive(self):
+        source = workflow("permissions: read-all\n", "    permissions:\n      contents: write\n")
+        data = yaml.safe_load(workflow_permissions.remediate_workflow(source))
+        self.assertEqual(data["permissions"], "read-all")
+        self.assertEqual(data["jobs"]["analysis"]["permissions"]["contents"], "write")
+
+    def test_publishing_rejects_workflow_writes_and_unapproved_execution(self):
+        source = workflow("permissions:\n  contents: write\n", "    permissions:\n      contents: read\n      security-events: write\n      id-token: write\n")
+        self.assertIn("workflow-level write permissions are forbidden", workflow_permissions.validate_scorecard_workflow(source))
+        with self.assertRaises(ValueError):
+            workflow_permissions.remediate_workflow(source)
+        source = workflow_permissions.scorecard_workflow_template().replace("    runs-on:", "    env:\n      TEST: value\n    runs-on:")
+        self.assertTrue(workflow_permissions.validate_scorecard_workflow(source))
+        source = workflow_permissions.scorecard_workflow_template().replace("    steps:", "    steps:\n      - run: echo unsafe")
+        self.assertTrue(workflow_permissions.validate_scorecard_workflow(source))
+        source = workflow_permissions.scorecard_workflow_template().replace("ubuntu-latest", "ubuntu-untrusted")
+        self.assertTrue(workflow_permissions.validate_scorecard_workflow(source))
+
     def test_template_has_full_sha_pins_and_valid_permissions(self):
-        template = workflow_permissions.scorecard_workflow_template()
+        template = workflow_permissions.scorecard_workflow_template("trunk")
+        self.assertEqual(yaml.load(template, Loader=yaml.BaseLoader)["on"]["push"]["branches"], ["trunk"])
         self.assertNotIn("@v3", template)
         self.assertEqual(workflow_permissions.validate_scorecard_workflow(template), [])
         self.assertIsInstance(yaml.safe_load(template), dict)

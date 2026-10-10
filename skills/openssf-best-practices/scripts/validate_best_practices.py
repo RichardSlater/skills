@@ -8,11 +8,13 @@ import json
 from pathlib import Path
 import re
 import sys
+import subprocess
 from typing import Any
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from safe_output import atomic_write_text
+from safe_files import read_bytes
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "references" / "schema" / "badgeapp-424f55a.json"
 NON_CRITERION_FIELDS = {"name", "description", "license", "implementation_languages"}
@@ -28,7 +30,7 @@ def unsafe_evidence_text(value: str) -> str | None:
     """Return a non-sensitive diagnostic for prohibited evidence text."""
     if any(pattern.search(value) for pattern in SECRET_PATTERNS):
         return "appears to contain a credential or private key"
-    if re.search(r"(?i)(?:^|\s)(?:[A-Za-z]:[\\/]|\\\\|file:)", value):
+    if re.search(r"(?i)(?:^|[\s`(])(?:[A-Za-z]:[\\/]|\\\\|file:|/[^/\s]|~/)", value):
         return "must not contain a local filesystem path"
     for raw_url in URL_PATTERN.findall(value):
         parsed = urlparse(raw_url.rstrip(".,;"))
@@ -125,7 +127,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         schema = load_schema(args.schema)
-        original = args.path.read_text(encoding="utf-8")
+        original = read_bytes(args.path.parent.absolute(), Path(args.path.name), 1024 * 1024).decode("utf-8")
         data = json.loads(original)
         errors = validate(data, schema, args.section)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -140,7 +142,11 @@ def main() -> int:
         print("ERROR: file is valid but not deterministically formatted", file=sys.stderr)
         return 2
     if not args.check:
-        atomic_write_text(args.path.parent.resolve(), args.path.name, formatted)
+        identity = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False)
+        if identity.returncode == 0 and args.path.absolute().is_relative_to(Path(identity.stdout.strip())):
+            print("ERROR: format an external copy, then use approved apply-file", file=sys.stderr)
+            return 2
+        atomic_write_text(args.path.parent.absolute(), args.path.name, formatted)
     print(f"Valid: {args.path}")
     return 0
 

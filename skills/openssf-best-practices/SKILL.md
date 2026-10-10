@@ -1,7 +1,7 @@
 ---
 name: openssf-best-practices
 description: Assess and improve a GitHub repository against the OpenSSF Best Practices Badge criteria, maintain truthful `.bestpractices.json` automation proposals, run OpenSSF Scorecard as supporting evidence, and prepare one approval-ready pull request containing high-confidence repository security improvements.
-compatibility: Python 3.11+, GitHub CLI, network access; Scorecard or Podman, Docker, or nerdctl for Scorecard assessment.
+compatibility: Python 3.11+ and Git on POSIX for offline assessment; GitHub CLI and approved network access for enrichment; Scorecard or an approved container runtime for Scorecard.
 ---
 
 # openssf-best-practices
@@ -56,7 +56,7 @@ Operate on one checked-out GitHub repository at a time.
 Expected starting state:
 
 - the shell working directory is inside the target Git repository;
-- `git`, `gh`, and Python 3.11+ are available;
+- `git` and Python 3.11+ are available for offline assessment; `gh` is required only for approved GitHub enrichment;
 - `gh auth token` can provide a GitHub token where authentication is needed;
 - a local `scorecard` executable is available, or a Docker-compatible runtime is available and the user explicitly approves execution of the reviewed container image.
 
@@ -123,13 +123,16 @@ Assessment is **strictly read-only**: it must not write, format, normalize, vali
 ASSESSMENT_DIR="$(mktemp -d)"
 ```
 
-Capture the initial state outside the repository and require an exact final match:
+Capture content-based state outside the repository before assessment:
 
 ```bash
-git status --short >"$ASSESSMENT_DIR/git-status.initial"
+"$PYTHON_BIN" "$SKILL_DIR/scripts/assessment_snapshot.py" snapshot \
+  --output "$ASSESSMENT_DIR/initial.json"
 ```
 
-Do not run project tests, formatters, dependency installers, validators, or tools with caches/output paths in the target tree during assessment. If evidence needs a potentially writing tool, make a temporary copy under `$ASSESSMENT_DIR/repository` and run it only there. End every assessment by saving a fresh `git status --short` to `$ASSESSMENT_DIR/git-status.final` and using `cmp -s` to compare it with `git-status.initial`; report a mismatch as an assessment failure.
+The baseline includes HEAD, index bytes, tracked files and non-ignored untracked files. Ignored paths are explicitly excluded; therefore this is not proof of zero filesystem writes. Keep every assessment tool's caches/output outside the tree. If broader coverage is necessary, use an operator-supplied read-only snapshot.
+
+Do not run project tests, formatters, dependency installers, validators, or tools with caches/output paths in the target tree during assessment. If evidence needs a potentially writing tool, make a temporary copy under `$ASSESSMENT_DIR/repository` and run it only there. End the read-only phase with `assessment_snapshot.py compare --baseline "$ASSESSMENT_DIR/initial.json"`; report a mismatch as an assessment failure. A status listing alone cannot detect changed bytes in already-dirty files or a clean-to-clean commit.
 
 ### 1. Preflight
 
@@ -141,11 +144,22 @@ Run:
 
 Stop on a missing essential tool. Do not ask the user to paste a token. Never print token values.
 
-Before any authenticated GitHub API evidence request, inventory the configured `gh` accounts without disclosing token values:
+Before external enrichment, obtain operator consent naming the canonical repository and each destination. Store the operator-approved record outside the target as `$CONSENT_FILE`:
+
+```json
+{
+  "repository": "owner/repository",
+  "scope": "assessment-disclosure",
+  "destinations": ["github", "bestpractices.dev", "scorecard"]
+}
+```
+
+Include only destinations actually approved. Tokens and target-provided records are not consent. The Scorecard CLI requires this record for public as well as private repositories; visibility is never assumed from a missing flag. Online discovery requires both `github` and `bestpractices.dev` consent. Offline discovery needs neither. Before any authenticated GitHub request, inventory accounts without exposing token values:
 
 ```bash
 "$PYTHON_BIN" "$SKILL_DIR/scripts/github_auth.py" \
-  --repo owner/repository >"$ASSESSMENT_DIR/gh-auth.initial.json"
+  --repo owner/repository --consent-file "$CONSENT_FILE" \
+  >"$ASSESSMENT_DIR/gh-auth.initial.json"
 ```
 
 This command reports only account login names, active state, token scope names, and the active account's `viewerPermission` for the repository. It does not prove that an inactive account has access, and a repository owner name is never a basis for choosing an account.
@@ -170,10 +184,11 @@ Run read-only identity commands and record their output only in `$ASSESSMENT_DIR
 ```bash
 git rev-parse --show-toplevel
 git remote get-url origin
+# Only after github disclosure consent:
 gh repo view --json nameWithOwner,url,defaultBranchRef,isPrivate,isArchived,isFork
 ```
 
-Use the initial status captured in Phase 1 as the baseline; do not require a clean tree for assessment. Preserve every pre-existing user change and do not run repair commands such as `git restore`, `git clean`, `git add`, or index-refreshing maintenance.
+Use the initial content snapshot as the baseline; do not require a clean tree for assessment. Preserve every pre-existing user change and do not run repair commands such as `git restore`, `git clean`, `git add`, or index-refreshing maintenance.
 
 Do not mix unrelated existing working-tree changes into the proposed work. Preserve user changes.
 
@@ -185,9 +200,12 @@ Run:
 
 ```bash
 "$PYTHON_BIN" "$SKILL_DIR/scripts/analyze_best_practices.py" discover --output "$ASSESSMENT_DIR/discovery.json"
+# Only after repository/destination approval:
+"$PYTHON_BIN" "$SKILL_DIR/scripts/analyze_best_practices.py" discover \
+  --consent-file "$CONSENT_FILE" --output "$ASSESSMENT_DIR/discovery-online.json"
 ```
 
-Use bounded practical signals. Documentation discovery scans only tracked text files, never follows symlinks, and limits itself to 200 files, 256 KiB per file, 2 MiB aggregate, and 5 seconds. The result includes scan completeness metadata; when a limit is hit, enrolment is `indeterminate`, not definitively unenrolled.
+Use bounded practical signals. Documentation discovery scans only tracked text files using bounded descriptor-relative no-follow reads. It rejects links, special files and cross-device traversal and limits itself to 200 files, 256 KiB per file, 2 MiB aggregate, and 5 seconds. The result includes scan completeness metadata; when a limit is hit, enrolment is `indeterminate`, not definitively unenrolled.
 
 Use all practical signals:
 
@@ -208,8 +226,8 @@ When the project ID is known:
 
 ```bash
 "$PYTHON_BIN" "$SKILL_DIR/scripts/analyze_best_practices.py" fetch \
-  --project-id "$project_id" \
-  --output "$ASSESSMENT_DIR/project.json"
+  --project-id "$project_id" --repo owner/repository \
+  --consent-file "$CONSENT_FILE" --output "$ASSESSMENT_DIR/project.json"
 ```
 
 The canonical endpoint is:
@@ -256,7 +274,7 @@ Run:
 
 ```bash
 "$PYTHON_BIN" "$SKILL_DIR/scripts/scorecard_runner.py" \
-  --repo owner/repository \
+  --repo owner/repository --consent-file "$CONSENT_FILE" \
   --output "$ASSESSMENT_DIR/scorecard.json"
 ```
 
@@ -268,7 +286,7 @@ Authentication order:
 2. `GITHUB_TOKEN`;
 3. `gh auth token` from the user-selected active `gh` account.
 
-Record which source was used, but never its value. If Scorecard needs access beyond the selected account's existing scopes, report the exact blocker; do not elevate scopes just for Scorecard without a new scoped approval. The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. A local executable is preferred; the reviewed immutable container image is an explicit opt-in dependency. Each result records artifact provenance, command mode, timing, and timeout status; captured output is bounded. Run without a token where supported.
+Record which source was used, but never its value. If Scorecard needs access beyond the selected account's existing scopes, report the exact blocker; do not elevate scopes just for Scorecard without a new scoped approval. The token is passed through the child-process environment as `GITHUB_AUTH_TOKEN`, never as a command argument. A local executable is preferred; the reviewed immutable container image is an explicit opt-in dependency. Each result records actual executor provenance (local executable path and hash, or the approved OCI digest), command mode, timing and timeout status. Capture is bounded while reading, process groups are terminated/reaped on timeout, and named containers are explicitly removed even if the client is killed. Run without a token where supported.
 
 Scorecard is supporting evidence. It is not interchangeable with Best Practices criteria. A high Scorecard result does not prove a badge criterion, and a low result does not automatically make a self-assessment answer false.
 
@@ -355,6 +373,16 @@ Rules:
 - preserve human-authored fields unless evidence establishes a correction;
 - format deterministically with two-space indentation and sorted keys.
 
+Apply the reviewed external copy only through the guarded entry point:
+
+```bash
+"$PYTHON_BIN" "$SKILL_DIR/scripts/analyze_best_practices.py" apply-file \
+  --repository "$REPOSITORY_ROOT" --approval "$APPROVAL_FILE" \
+  --source "$ASSESSMENT_DIR/bestpractices.json" --destination .bestpractices.json
+```
+
+`$APPROVAL_FILE` is an operator-approved external JSON record containing `repository` (absolute root), `scope: "apply"`, and `allowed_paths` (exact relative files). The helper checks approval, a clean tree, schema validity and no-follow output containment. Apply one approved file at a time; after the first write makes the tree dirty, review and commit that bounded change before using the clean-tree helper again, or have the operator authorize a separate multi-file agent workflow with listed existing changes. Repository-local transient output additionally requires approval and an active ignore rule; the output helper checks both at its public entry point.
+
 The file proposes answers for human review; it does not directly alter the badge record.
 
 ### 10. Determine the target level
@@ -402,16 +430,16 @@ Create one draft PR unless the user explicitly requests a ready-for-review PR.
 
 ## Completion conditions
 
-Before reporting completion, run:
+At the end of the read-only assessment phase, before apply, run:
 
 ```bash
-git status --short >"$ASSESSMENT_DIR/git-status.final"
-cmp -s "$ASSESSMENT_DIR/git-status.initial" "$ASSESSMENT_DIR/git-status.final"
+"$PYTHON_BIN" "$SKILL_DIR/scripts/assessment_snapshot.py" compare \
+  --baseline "$ASSESSMENT_DIR/initial.json"
 ```
 
-Confirm the result explicitly; if it changed, stop and report the discrepancy without attempting to repair the working tree.
+Report any discrepancy without repair. After approved apply work, instead review the complete content diff against the approved paths and changes and report the intentionally changed files/commits. Do not claim the initial tree remained unchanged after apply.
 
-The skill is complete when it has:
+Read-only assessment is complete with enrollment/ambiguity, available evidence, a ledger, snapshot comparison and proposed follow-ups; it does not require mutation or a PR. Approved apply work is complete when it has:
 
 - conclusively reported enrolment status or ambiguity;
 - fetched current project JSON when possible;
@@ -436,7 +464,7 @@ Target level:
 Scorecard:
 Changes made:
 Validated by:
-Working tree: unchanged from initial `git status --short` / discrepancy reported
+Working tree: content snapshot unchanged within recorded coverage / discrepancy / approved changes listed
 Human/settings follow-ups:
 PR:
 ```

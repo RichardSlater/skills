@@ -58,10 +58,10 @@ class GitHubAuthTests(unittest.TestCase):
                 auth.inspect("github.com", "owner/repo"),
                 {"hostname": "github.com", "accounts": [{"login": "alice", "active": True, "scopes": []}], "active_account": "alice", "repository": "owner/repo", "active_viewer_permission": "WRITE"},
             )
-        with patch("sys.argv", ["github_auth.py"]), patch.object(auth, "inspect", return_value={"accounts": []}), patch("builtins.print") as output:
+        with patch("sys.argv", ["github_auth.py", "--repo", "a/b", "--consent-file", "/consent"]), patch.object(auth, "require_disclosure", return_value={}), patch.object(auth, "inspect", return_value={"accounts": []}), patch("builtins.print") as output:
             self.assertEqual(auth.main(), 0)
         self.assertIn('"accounts": []', output.call_args.args[0])
-        with patch("sys.argv", ["github_auth.py"]), patch.object(auth, "inspect", side_effect=RuntimeError("blocked")), patch("builtins.print") as output:
+        with patch("sys.argv", ["github_auth.py", "--repo", "a/b", "--consent-file", "/consent"]), patch.object(auth, "require_disclosure", return_value={}), patch.object(auth, "inspect", side_effect=RuntimeError("blocked")), patch("builtins.print") as output:
             self.assertEqual(auth.main(), 3)
         self.assertEqual(output.call_args.args[0], "ERROR: blocked")
 
