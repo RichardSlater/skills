@@ -1,6 +1,6 @@
 ---
 name: bubblewrap-isolation
-description: Run short-lived agent commands inside a Bubblewrap sandbox with a private home, isolated processes, no network, and only the current Git project writable. Use whenever agent-run code needs local command isolation on Linux.
+description: Run short-lived agent commands inside a Bubblewrap sandbox with a private home, isolated processes, and only the current Git project writable. Network is off unless the invoked command matches an operator network-commands line. Use whenever agent-run code needs local command isolation on Linux.
 compatibility: Linux with Bubblewrap (bwrap) 0.8+ and unprivileged user namespaces enabled; Git working tree; Bash.
 ---
 
@@ -10,7 +10,7 @@ Run commands that compile, test, inspect, transform, or otherwise execute projec
 
 This skill limits arbitrary executables launched by the agent in otherwise trusted repositories. Assessing potentially malicious repositories, PRs, hooks, or dependencies is a separate workflow. Host execution below is not suitable for those targets.
 
-The sandbox is a defense-in-depth boundary, not a substitute for a VM or container when hostile code needs stronger isolation. A caller that never invokes the launcher can still bypass it. Its standard configuration has no host network, no host home, no inherited environment, no host credential sockets, and no writable path outside the project.
+The sandbox is a defense-in-depth boundary, not a substitute for a VM or container when hostile code needs stronger isolation. A caller that never invokes the launcher can still bypass it. Its standard configuration has no host home, no inherited environment, no host credential sockets, and no writable path outside the project. Network is off unless the invoked command matches an operator `network-commands` line.
 
 ## Mandatory safety rules
 

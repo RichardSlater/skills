@@ -43,7 +43,17 @@ resolve_real_home() {
   [[ -n "$home" && "$home" == /* ]] || die "cannot resolve invoking user home from the user database"
   [[ ! -L "$home" && -d "$home" ]] || die "invoking user home must be a real directory"
   REAL_HOME="$(canonical_dir "$home")"
+  REAL_USER="$(printf '%s\n' "$line" | /usr/bin/awk -F: 'NR==1 { print $1 }')"
+  [[ -n "$REAL_USER" && "$REAL_USER" != *$'\n'* ]] || die "cannot resolve invoking user name from the user database"
   CONFIG_DIR="$REAL_HOME/.config/bubblewrap-isolation"
+}
+
+refuse_project_contains_home() {
+  case "$REAL_HOME" in
+    "$PROJECT"|"$PROJECT"/*)
+      die "refusing Git project that contains the invoking user's home: $PROJECT"
+      ;;
+  esac
 }
 
 resolve_project() {
@@ -106,18 +116,61 @@ assert_no_symlink_chain() {
   done
 }
 
+is_secret_name() {
+  local name="${1##*/}"
+  [[ "$name" == ".env" || "$name" == ".envrc" || "$name" == .env.* ]]
+}
+
+is_credential_relative() {
+  local rel="$1"
+  case "$rel" in
+    .ssh|.ssh/*|*/.ssh|*/.ssh/*|\
+    .gnupg|.gnupg/*|*/.gnupg|*/.gnupg/*|\
+    .aws|.aws/*|*/.aws|*/.aws/*|\
+    .kube|.kube/*|*/.kube|*/.kube/*|\
+    .docker|.docker/*|*/.docker|*/.docker/*|\
+    .config/git|.config/git/*|*/.config/git|*/.config/git/*|\
+    .config/gh|.config/gh/*|*/.config/gh|*/.config/gh/*|\
+    .cache/pre-commit|.cache/pre-commit/*|*/.cache/pre-commit|*/.cache/pre-commit/*|\
+    .config/bubblewrap-isolation|.config/bubblewrap-isolation/*|*/.config/bubblewrap-isolation|*/.config/bubblewrap-isolation/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 scan_inodes() {
-  local entry id
+  local entry id listing rel credential=""
+  listing="$(mktemp)"
+  if ! find -P "$PROJECT" -xdev \( -type f -o -type d -o -type l \) -print0 >"$listing"; then
+    rm -f "$listing"
+    die "hardlink scan failed"
+  fi
   declare -gA INODE_PATHS=()
   while IFS= read -r -d '' entry; do
     reject_newline "$entry" "project path"
+    if [[ "$entry" == "$PROJECT" ]]; then
+      continue
+    fi
+    rel="${entry#"$PROJECT"/}"
+    if [[ -z "$credential" ]] && is_credential_relative "$rel" && { [[ -d "$entry" || -L "$entry" ]]; }; then
+      credential="$rel"
+    fi
+    if is_secret_name "$rel"; then
+      append_unique "$rel"
+    fi
+    if [[ -L "$entry" ]]; then
+      continue
+    fi
     id="$(stat -c '%d:%i' -- "$entry")"
     if [[ -n "${INODE_PATHS[$id]+x}" ]]; then
       INODE_PATHS["$id"]+=$'\n'"$entry"
     else
       INODE_PATHS["$id"]="$entry"
     fi
-  done < <(find -P "$PROJECT" -xdev \( -type f -o -type d \) -print0)
+  done <"$listing"
+  rm -f "$listing"
+  [[ -z "$credential" ]] || die "refusing credential directory in project: $credential"
 }
 
 assert_unique_inode() {
@@ -235,6 +288,16 @@ validate_network_line() {
   done
 }
 
+assert_private_config() {
+  local path="$1" owner mode
+  owner="$(stat -c '%u' -- "$path")"
+  [[ "$owner" == "$(/usr/bin/id -u)" ]] || die "refusing operator config not owned by the invoking user: $path"
+  mode="$(stat -c '%a' -- "$path")"
+  if (( (8#$mode & 022) != 0 )); then
+    die "refusing group- or other-writable operator config: $path"
+  fi
+}
+
 load_operator_config() {
   EXTRA_NAMES=()
   NETWORK_LINES=()
@@ -250,6 +313,7 @@ load_operator_config() {
     fi
   done
   [[ -d "$CONFIG_DIR" ]] || die "config path must be a directory: $CONFIG_DIR"
+  assert_private_config "$CONFIG_DIR"
   shopt -s nullglob dotglob
   local entry name
   for entry in "$CONFIG_DIR"/*; do
@@ -261,6 +325,7 @@ load_operator_config() {
     esac
     [[ ! -L "$entry" ]] || die "refusing symlink in config: $name"
     [[ -f "$entry" ]] || die "config entry must be a regular file: $name"
+    assert_private_config "$entry"
   done
   shopt -u nullglob dotglob
   local file line
@@ -489,15 +554,23 @@ rpath_tokens_ok() {
 }
 
 elf_closure_ok() {
-  local file="$1" interp soname resolved raw ldconfig="" candidate
-  interp="$(/usr/bin/readelf -l -- "$file" 2>/dev/null | /usr/bin/sed -n 's/.*Requesting program interpreter: \([^]]*\).*/\1/p')"
+  local file="$1" report interp_out interp soname resolved raw ldconfig="" candidate
+  [[ -x /usr/bin/readelf ]] || return 1
+  report="$(/usr/bin/readelf -d -- "$file" 2>&1)" || return 1
+  [[ -n "${report//[[:space:]]/}" ]] || return 1
+  if printf '%s\n' "$report" | /usr/bin/grep -q "no dynamic section"; then
+    return 0
+  fi
+  printf '%s\n' "$report" | /usr/bin/grep -q "Dynamic section" || return 1
+  interp_out="$(/usr/bin/readelf -l -- "$file" 2>&1)" || return 1
+  interp="$(printf '%s\n' "$interp_out" | /usr/bin/sed -n 's/.*Requesting program interpreter: \([^]]*\).*/\1/p')"
   if [[ -n "$interp" ]]; then
     in_base_mounts "$interp" || return 1
   fi
   while IFS= read -r raw; do
     [[ -n "$raw" ]] || continue
     rpath_tokens_ok "$raw" || return 1
-  done < <(/usr/bin/readelf -d -- "$file" 2>/dev/null | /usr/bin/awk '/\(RPATH\)|\(RUNPATH\)/ { print $NF }')
+  done < <(printf '%s\n' "$report" | /usr/bin/awk '/\(RPATH\)|\(RUNPATH\)/ { print $NF }')
   for candidate in /sbin/ldconfig /usr/sbin/ldconfig; do
     if [[ -x "$candidate" ]] && under_base_prefix "$(readlink -f -- "$candidate")"; then
       ldconfig="$candidate"
@@ -510,7 +583,7 @@ elf_closure_ok() {
     resolved="$("$ldconfig" -p 2>/dev/null | /usr/bin/awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
     [[ -n "$resolved" ]] || return 1
     in_base_mounts "$resolved" || return 1
-  done < <(/usr/bin/readelf -d -- "$file" 2>/dev/null | /usr/bin/awk '/\(NEEDED\)/ { gsub(/[\[\]]/, "", $NF); print $NF }')
+  done < <(printf '%s\n' "$report" | /usr/bin/awk '/\(NEEDED\)/ { gsub(/[\[\]]/, "", $NF); print $NF }')
   return 0
 }
 
@@ -635,10 +708,13 @@ bind_extra_commands() {
 
 validate_host_metadata() {
   local git_dir hooks config name
-  if git -C "$PROJECT" config --get core.hooksPath >/dev/null 2>&1; then
+  if git_clean config --get core.hooksPath >/dev/null 2>&1; then
     die "core.hooksPath is set; refusing host execution until it is removed and hooks are reviewed"
   fi
-  git_dir="$(git -C "$PROJECT" rev-parse --absolute-git-dir)"
+  if git_clean config --local --get core.sshCommand >/dev/null 2>&1; then
+    die "core.sshCommand is set; refusing host execution"
+  fi
+  git_dir="$(git_clean rev-parse --absolute-git-dir)"
   hooks="$git_dir/hooks"
   config="$git_dir/config"
   [[ ! -L "$git_dir" && ! -L "$hooks" && ! -L "$config" ]] || die "refusing symlinked Git metadata"
@@ -653,7 +729,7 @@ validate_host_metadata() {
 hooks_fingerprint() {
   local git_dir hooks config name
   validate_host_metadata
-  git_dir="$(git -C "$PROJECT" rev-parse --absolute-git-dir)"
+  git_dir="$(git_clean rev-parse --absolute-git-dir)"
   hooks="$git_dir/hooks"
   config="$git_dir/config"
   {
@@ -735,27 +811,54 @@ add_project_parents() {
   done
 }
 
+resolver_target_allowed() {
+  local canonical="$1"
+  case "$canonical" in
+    "$REAL_HOME"|"$REAL_HOME"/*)
+      return 1
+      ;;
+  esac
+  if in_forbidden_bind_dir "$canonical"; then
+    return 1
+  fi
+  case "$canonical" in
+    /etc|/etc/*|/run|/run/*) return 0 ;;
+  esac
+  return 1
+}
+
 copy_network_files() {
-  local path fd
+  local path canonical fd
   [[ "$SHARE_NET" == true ]] || return 0
   for path in /etc/resolv.conf /etc/hosts; do
-    [[ -e "$path" ]] || continue
-    case "$path" in
-      "$REAL_HOME"|"$REAL_HOME"/*) die "refusing to mount host configuration for network: $path" ;;
-    esac
-    exec {fd}<"$path"
+    [[ -e "$path" || -L "$path" ]] || continue
+    canonical="$(readlink -f -- "$path")" || die "refusing resolver path: $path"
+    if ! resolver_target_allowed "$canonical"; then
+      die "refusing resolver path: $canonical"
+    fi
+    [[ -f "$canonical" && ! -L "$canonical" && ! -d "$canonical" ]] || die "refusing resolver path: $canonical"
+    exec {fd}<"$canonical"
     NETWORK_FDS+=("$fd")
     NETWORK+=(--ro-bind-data "$fd" "$path")
   done
   for path in /etc/ssl/certs /etc/pki/tls/certs; do
-    if [[ -d "$path" && ! -L "$path" ]]; then
-      case "$path" in
-        "$REAL_HOME"|"$REAL_HOME"/*|"$REAL_HOME/.npmrc"|"$REAL_HOME/.cargo"|"$REAL_HOME/.cargo"/*|"$REAL_HOME/.cache/pre-commit"|"$REAL_HOME/.cache/pre-commit"/*)
-          die "refusing to mount host configuration for network: $path"
+    [[ -e "$path" || -L "$path" ]] || continue
+    canonical="$(readlink -f -- "$path" 2>/dev/null || true)"
+    if [[ -n "$canonical" ]]; then
+      case "$canonical" in
+        "$REAL_HOME"|"$REAL_HOME"/*)
+          die "refusing to mount host configuration for network: $canonical"
           ;;
       esac
-      NETWORK+=(--ro-bind "$path" "$path")
+      if in_forbidden_bind_dir "$canonical"; then
+        die "refusing to mount host configuration for network: $canonical"
+      fi
     fi
+    [[ -d "$path" && ! -L "$path" ]] || continue
+    [[ -n "$canonical" ]] || die "refusing to mount host configuration for network: $path"
+    case "$canonical" in
+      /etc|/etc/*) NETWORK+=(--ro-bind "$path" "$path") ;;
+    esac
   done
 }
 
@@ -792,6 +895,7 @@ run_sandboxed() {
   args+=("${PARENTS[@]+"${PARENTS[@]}"}")
   args+=(--bind "$PROJECT" "$PROJECT")
   args+=("${MASKS[@]+"${MASKS[@]}"}")
+  args+=("${NETWORK[@]+"${NETWORK[@]}"}")
   args+=("${EXTRA_BINDS[@]+"${EXTRA_BINDS[@]}"}")
   local -a cmd=("$@")
   if [[ -n "${INVOKE_BOUND:-}" && "$INVOKE_NEEDS_EXTRA" == true ]]; then
@@ -802,16 +906,63 @@ run_sandboxed() {
   exec "$bwrap" "${args[@]}" < /dev/null
 }
 
+scrub_host_path() {
+  local IFS=':' entry physical out=""
+  local -a entries=()
+  read -r -a entries <<<"${HOST_PATH:-}"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && "$entry" == /* && -d "$entry" ]] || continue
+    physical="$(canonical_dir "$entry" 2>/dev/null)" || continue
+    case "$physical" in
+      "$PROJECT"|"$PROJECT"/*) continue ;;
+    esac
+    out+="${out:+:}$entry"
+  done
+  printf '%s\n' "$out"
+}
+
+ssh_auth_sock_ok() {
+  local sock="$1"
+  [[ -n "$sock" && "$sock" == /* && -S "$sock" && ! -L "$sock" ]] || return 1
+  path_has_symlink_component "$sock" && return 1
+  return 0
+}
+
+git_clean() {
+  local -a cmd=(env -i PATH="$HOST_CLEAN_PATH" HOME="$REAL_HOME" USER="$REAL_USER")
+  if [[ -n "${HOST_CLEAN_SSH:-}" ]]; then
+    cmd+=(SSH_AUTH_SOCK="$HOST_CLEAN_SSH")
+  fi
+  cmd+=(git -C "$PROJECT")
+  "${cmd[@]}" "$@"
+}
+
+prepare_host_environment() {
+  local subcommand="$1"
+  HOST_CLEAN_PATH="$(scrub_host_path)"
+  [[ -n "$HOST_CLEAN_PATH" ]] || die "refusing host execution with empty PATH"
+  HOST_CLEAN_SSH=""
+  if [[ "$subcommand" == push ]] && ssh_auth_sock_ok "${SSH_AUTH_SOCK:-}"; then
+    HOST_CLEAN_SSH="$SSH_AUTH_SOCK"
+  fi
+}
+
 run_host() {
   local fingerprint resolved
   [[ "$1" == git && ( "$2" == commit || "$2" == push ) ]] || die "host execution is limited to git commit and git push"
+  prepare_host_environment "$2"
   fingerprint="$(hooks_fingerprint)"
   resolved="$(resolve_host_executable "$1")" || die "refusing host executable resolved inside the project or missing from PATH: $1"
   [[ "$fingerprint" == "$(hooks_fingerprint)" ]] || die "hook or Git config fingerprint changed; refusing host execution"
   print_status host host "$@"
   shift
   cd -- "$WORKDIR"
-  exec "$resolved" "$@" < /dev/null
+  local -a cmd=(env -i PATH="$HOST_CLEAN_PATH" HOME="$REAL_HOME" USER="$REAL_USER")
+  if [[ -n "$HOST_CLEAN_SSH" ]]; then
+    cmd+=(SSH_AUTH_SOCK="$HOST_CLEAN_SSH")
+  fi
+  cmd+=("$resolved")
+  exec "${cmd[@]}" "$@" < /dev/null
 }
 
 prepare_project_masks() {
@@ -830,6 +981,7 @@ run_command() {
   [[ "$#" -ge 1 ]] || usage
   resolve_project
   resolve_real_home
+  refuse_project_contains_home
   load_operator_config
   prepare_project_masks
   if is_git_host_command "$@"; then
@@ -847,9 +999,18 @@ run_command() {
   run_sandboxed "$@"
 }
 
+clear_git_environment() {
+  local key
+  while IFS= read -r key; do
+    [[ -n "$key" ]] || continue
+    unset "$key"
+  done < <(compgen -v GIT_)
+}
+
 main() {
   umask 077
   HOST_PATH="${PATH-}"
+  clear_git_environment
   reject_caller_config "${1:-}"
   case "${1:-}" in
     record-approval)

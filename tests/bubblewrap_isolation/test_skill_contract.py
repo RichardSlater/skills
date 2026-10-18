@@ -161,6 +161,9 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
             }
         )
         (self.root / "gitconfig").write_text("")
+        (self.fake_home / ".gitconfig").write_text(
+            "[user]\n\tname = Test\n\temail = test@example.com\n"
+        )
         subprocess.run(["git", "init", "-q", str(self.project)], check=True, env=self.env)
         self.bin = self.root / "bin"
         self.bin.mkdir()
@@ -172,41 +175,59 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
     def config_dir(self):
         path = self.fake_home / ".config" / "bubblewrap-isolation"
         path.mkdir(parents=True, exist_ok=True)
+        path.chmod(0o700)
         return path
 
     def write_config(self, name, text):
         (self.config_dir() / name).write_text(text)
 
-    def run_launcher(self, args, cwd=None, env=None):
+    def etc_overlay(self, resolv):
+        etc = self.root / f"etc-{id(resolv)}"
+        etc.mkdir()
+        shutil.copy(self.passwd, etc / "passwd")
+        (etc / "hosts").write_text("127.0.0.1 localhost\n")
+        destination = etc / "resolv.conf"
+        kind, value = resolv
+        if kind == "file":
+            destination.write_text(value)
+        elif kind == "symlink":
+            destination.symlink_to(value)
+        else:
+            raise AssertionError(kind)
+        binds = ["--bind", str(etc), "/etc"]
+        if Path("/etc/alternatives").is_dir():
+            binds.extend(["--bind", "/etc/alternatives", "/etc/alternatives"])
+        return binds
+
+    def run_launcher(self, args, cwd=None, env=None, extra_bwrap=None):
         work = cwd or self.project
+        command = [
+            "bwrap",
+            "--unshare-user",
+            "--uid",
+            str(os.getuid()),
+            "--gid",
+            str(os.getgid()),
+            "--die-with-parent",
+            "--bind",
+            "/",
+            "/",
+            "--bind",
+            str(self.passwd),
+            "/etc/passwd",
+            "--bind",
+            str(self.fake_home),
+            str(self.fake_home),
+            "--dev",
+            "/dev",
+            "--proc",
+            "/proc",
+        ]
+        if extra_bwrap:
+            command.extend(extra_bwrap)
+        command.extend(["--chdir", str(work), "--", str(SCRIPT), *args])
         return subprocess.run(
-            [
-                "bwrap",
-                "--unshare-user",
-                "--uid",
-                str(os.getuid()),
-                "--gid",
-                str(os.getgid()),
-                "--die-with-parent",
-                "--bind",
-                "/",
-                "/",
-                "--bind",
-                str(self.passwd),
-                "/etc/passwd",
-                "--bind",
-                str(self.fake_home),
-                str(self.fake_home),
-                "--dev",
-                "/dev",
-                "--proc",
-                "/proc",
-                "--chdir",
-                str(work),
-                "--",
-                str(SCRIPT),
-                *args,
-            ],
+            command,
             cwd=work,
             env=env or self.env,
             text=True,
@@ -463,7 +484,11 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertIn("network=off", offline.stderr)
         self.assertNotIn(host_ifaces[0], offline.stdout)
         self.assertNotIn("network=on", offline.stderr)
-        installed = self.run_launcher(["--", "pnpm", "install", "--frozen-lockfile"])
+        allowed_etc = self.etc_overlay(("file", "nameserver 127.0.0.1\n"))
+        installed = self.run_launcher(
+            ["--", "pnpm", "install", "--frozen-lockfile"],
+            extra_bwrap=allowed_etc,
+        )
         self.assertEqual(installed.returncode, 0, installed.stderr)
         self.assertIn("network=on", installed.stderr)
         self.assertIn(host_ifaces[0], installed.stdout)
@@ -475,7 +500,10 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
             f"cat {cargo}/config.toml || true; cat {cache}/poison || true; "
             f"cat {ssh}/id || true; env | grep SSH_AUTH_SOCK || true"
         )
-        hidden = self.run_launcher(["--", "pnpm", "install", "--", "ignored"])
+        hidden = self.run_launcher(
+            ["--", "pnpm", "install", "--", "ignored"],
+            extra_bwrap=allowed_etc,
+        )
         self.assertIn("network=on", hidden.stderr)
         leaked = self.run_launcher(["--", "bash", "-c", probe])
         self.assertIn("network=off", leaked.stderr)
@@ -586,8 +614,236 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertEqual(mounted.returncode, 0, mounted.stderr)
         self.assertIn("size=1048576k", mounted.stdout)
 
+    def test_inherited_git_dir_does_not_redirect_host_commit(self):
+        self.write_config("host-commands", "git commit\n")
+        other = self.root / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True, env=self.env)
+        other_marker = self.root / "other-hook"
+        other_hook = other / ".git" / "hooks" / "pre-commit"
+        other_hook.write_text(f"#!/bin/sh\necho OTHER > {other_marker}\nexit 0\n")
+        other_hook.chmod(0o755)
+        env_file = self.root / "commit-env"
+        hook = self.project / ".git" / "hooks" / "pre-commit"
+        hook.write_text(f"#!/bin/sh\nenv > {env_file}\nexit 0\n")
+        hook.chmod(0o755)
+        (self.project / "tracked").write_text("a\n")
+        subprocess.run(["git", "add", "tracked"], cwd=self.project, env=self.env, check=True)
+        env = self.env.copy()
+        env["GIT_DIR"] = str(other / ".git")
+        env["GIT_WORK_TREE"] = str(other)
+        env["GIT_SSH_COMMAND"] = "evil-ssh-command-marker"
+        completed = self.run_launcher(["--", "git", "commit", "-m", "project-commit"], env=env)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("execution=host", completed.stderr)
+        self.assertFalse(other_marker.exists())
+        self.assertTrue(env_file.is_file())
+        recorded = env_file.read_text()
+        self.assertNotIn("evil-ssh-command-marker", recorded)
+        self.assertNotIn(str(other / ".git"), recorded)
+        self.assertIn(f"HOME={self.fake_home}", recorded)
+        self.assertIn("USER=tester", recorded)
+        self.assertNotIn("GNUPGHOME=", recorded)
+        log = subprocess.check_output(
+            ["git", "log", "-1", "--format=%s"],
+            cwd=self.project,
+            env=self.env,
+            text=True,
+        )
+        self.assertEqual(log.strip(), "project-commit")
+        other_log = subprocess.run(
+            ["git", "log", "-1", "--format=%s"],
+            cwd=other,
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(other_log.stdout.strip(), "project-commit")
+
+    def test_inherited_git_ssh_command_is_not_forwarded(self):
+        self.write_config("host-commands", "git push\n")
+        (self.project / "tracked").write_text("a\n")
+        subprocess.run(["git", "add", "tracked"], cwd=self.project, env=self.env, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "init"],
+            cwd=self.project,
+            env=self.env,
+            check=True,
+        )
+        remote = self.root / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True, env=self.env)
+        subprocess.run(
+            ["git", "remote", "add", "origin", str(remote)],
+            cwd=self.project,
+            env=self.env,
+            check=True,
+        )
+        env_file = self.root / "push-env"
+        hook = self.project / ".git" / "hooks" / "pre-push"
+        hook.write_text(f"#!/bin/sh\nenv > {env_file}\nexit 0\n")
+        hook.chmod(0o755)
+        sock = self.root / "agent.sock"
+        subprocess.run(["python3", "-c", f"import socket; s=socket.socket(socket.AF_UNIX); s.bind('{sock}')"], check=True)
+        env = self.env.copy()
+        env["GIT_SSH_COMMAND"] = "evil-ssh-command-marker"
+        env["SSH_AUTH_SOCK"] = str(sock)
+        env["GNUPGHOME"] = str(self.fake_home / ".gnupg")
+        completed = self.run_launcher(["--", "git", "push", "origin", "HEAD"], env=env)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("execution=host", completed.stderr)
+        recorded = env_file.read_text()
+        self.assertNotIn("evil-ssh-command-marker", recorded)
+        self.assertNotIn("GIT_SSH_COMMAND=", recorded)
+        self.assertNotIn("GNUPGHOME=", recorded)
+        self.assertIn(f"SSH_AUTH_SOCK={sock}", recorded)
+        self.assertIn(f"HOME={self.fake_home}", recorded)
+
+    def test_repository_ssh_command_refuses_host_push(self):
+        self.write_config("host-commands", "git push\n")
+        marker = self.root / "ssh-command-ran"
+        subprocess.run(
+            ["git", "config", "core.sshCommand", f"touch {marker}"],
+            cwd=self.project,
+            env=self.env,
+            check=True,
+        )
+        completed = self.run_launcher(["--", "git", "push"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("core.sshCommand", completed.stderr)
+        self.assertNotIn("execution=host", completed.stderr)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_project_containing_home_is_refused(self):
+        subprocess.run(["git", "init", "-q", str(self.fake_home)], check=True, env=self.env)
+        marker = self.fake_home / "ran"
+        home_root = self.run_launcher(
+            ["--", "bash", "-c", f"touch {marker}"],
+            cwd=self.fake_home,
+        )
+        self.assertNotEqual(home_root.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertIn("contains the invoking user's home", home_root.stderr)
+        self.assertNotIn("execution=sandbox", home_root.stderr)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=self.env)
+        ancestor_marker = self.root / "ancestor-ran"
+        ancestor = self.run_launcher(
+            ["--", "bash", "-c", f"touch {ancestor_marker}"],
+            cwd=self.root,
+        )
+        self.assertNotEqual(ancestor.returncode, 0)
+        self.assertFalse(ancestor_marker.exists())
+        self.assertIn("contains the invoking user's home", ancestor.stderr)
+
+    def test_nested_env_files_are_unreadable(self):
+        nested = self.project / "nested"
+        nested.mkdir()
+        (nested / ".env").write_text("SECRET=nested\n")
+        (nested / ".envrc").write_text("SECRET=rc\n")
+        (nested / ".env.example").write_text("SECRET=example\n")
+        completed = self.run_launcher(
+            ["--", "bash", "-c", "cat nested/.env nested/.envrc nested/.env.example"]
+        )
+        self.assertNotIn("SECRET=", completed.stdout + completed.stderr)
+        self.assertNotIn("execution=host", completed.stderr)
+
+    def test_project_ssh_directory_refuses_launch(self):
+        (self.project / ".ssh").mkdir()
+        (self.project / ".ssh" / "id").write_text("KEY\n")
+        marker = self.project / "ran"
+        completed = self.run_launcher(["--", "bash", "-c", f"echo RAN > {marker}"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertIn("credential directory", completed.stderr)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+
+    def test_failed_hardlink_walk_refuses_launch(self):
+        self.write_script("find", "echo scan-failed >&2\nexit 1\n")
+        marker = self.project / "ran"
+        completed = self.run_launcher(["--", "bash", "-c", f"echo RAN > {marker}"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertIn("hardlink scan failed", completed.stderr)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+
+    def test_group_writable_config_refuses_without_changing_mode(self):
+        missing = self.fake_home / ".config" / "bubblewrap-isolation"
+        self.assertFalse(missing.exists())
+        untouched = self.run_launcher(["--", "true"])
+        self.assertEqual(untouched.returncode, 0, untouched.stderr)
+        self.assertFalse(missing.exists())
+        config = self.config_dir()
+        host_commands = config / "host-commands"
+        host_commands.write_text("git commit\n")
+        host_commands.chmod(0o664)
+        marker = self.project / "ran"
+        completed = self.run_launcher(["--", "bash", "-c", f"echo RAN > {marker}"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertIn("group- or other-writable operator config", completed.stderr)
+        self.assertEqual(host_commands.stat().st_mode & 0o777, 0o664)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+
+    def test_unparsed_elf_is_not_available(self):
+        elf = self.bin / "badelf"
+        elf.write_bytes(b"\x7fELF")
+        elf.chmod(0o755)
+        self.write_config("extra-commands", "badelf\n")
+        completed = self.run_launcher(["--", "badelf"])
+        self.assertIn("not available: badelf", completed.stderr)
+        self.assertNotIn("execution=host", completed.stderr)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+
+    def test_resolver_under_home_refuses_network_command(self):
+        target = self.fake_home / "resolv.conf"
+        target.write_text("nameserver 9.9.9.9\n")
+        self.write_config("network-commands", "bash\n")
+        marker = self.project / "ran"
+        completed = self.run_launcher(
+            ["--", "bash", "-c", f"echo RAN > {marker}"],
+            extra_bwrap=self.etc_overlay(("symlink", str(target))),
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertIn("refusing resolver path", completed.stderr)
+        self.assertIn(str(target), completed.stderr)
+        self.assertNotIn("execution=sandbox", completed.stderr)
+
+    def test_run_resolver_stub_is_copied_without_mounting_run(self):
+        run_root = self.root / "fake-run"
+        stub_dir = run_root / "systemd" / "resolve"
+        stub_dir.mkdir(parents=True)
+        (stub_dir / "stub-resolv.conf").write_text("nameserver 127.0.0.53\nSTUBMARK\n")
+        self.write_config("network-commands", "bash\n")
+        completed = self.run_launcher(
+            [
+                "--",
+                "bash",
+                "-c",
+                "cat /etc/resolv.conf; test ! -e /run/systemd/resolve/stub-resolv.conf",
+            ],
+            extra_bwrap=[
+                *self.etc_overlay(("symlink", "/run/systemd/resolve/stub-resolv.conf")),
+                "--bind",
+                str(run_root),
+                "/run",
+            ],
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("STUBMARK", completed.stdout)
+        self.assertIn("network=on", completed.stderr)
+        self.assertNotIn("/run/systemd/resolve/stub-resolv.conf", completed.stdout)
+
     def test_skill_reports_errors_instead_of_approvals(self):
         text = SKILL.read_text()
+        front = text.split("---", 2)[1]
+        body = text.split("---", 2)[2]
+        self.assertIn("Network is off unless", front)
+        self.assertIn("network-commands", front)
+        self.assertNotIn("no network", front.lower())
+        self.assertIn("Network is off unless", body)
+        self.assertIn("network-commands", body)
         self.assertIn("not in extra-commands: <name>", text)
         self.assertIn("not available: <name>", text)
         self.assertIn("not in host-commands: git commit", text)
