@@ -49,8 +49,6 @@ skills/
       test_plan_layout.py
   bubblewrap-isolation/
     SKILL.md
-    scripts/
-      run-isolated.sh
   malicious-intent-analysis/
     SKILL.md
     LICENSE
