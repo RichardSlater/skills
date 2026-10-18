@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Fail-closed Bubblewrap launcher for short-lived agent commands.
-# Shared approvals live in the committed .bwrap/approvals tree. Working-tree
-# edits and repository .bwrap.yaml do not grant authority.
+# Extra programs, per-command network, and host execution come only from the
+# invoking user's real ~/.config/bubblewrap-isolation/. Repository files,
+# mount flags, and network flags do not grant authority.
 set -euo pipefail
 
 usage() {
   printf 'Usage: %s -- command [argument ...]\n' "${0##*/}" >&2
-  printf '       %s record-approval --id ID --execution sandbox|host --note TEXT -- command [argument ...]\n' "${0##*/}" >&2
+  printf 'Operator config: ~/.config/bubblewrap-isolation/{extra-commands,network-commands,host-commands}\n' >&2
   exit 64
 }
 
@@ -20,6 +21,31 @@ canonical_dir() {
   (cd "$path" && pwd -P)
 }
 
+reject_caller_config() {
+  if [[ -n "${BUBBLEWRAP_ISOLATION_CONFIG:-}${BUBBLEWRAP_ISOLATION_CONFIG_DIR:-}${BWRAP_CONFIG:-}" ]]; then
+    die "caller-supplied config path is not accepted"
+  fi
+  case "${1:-}" in
+    --config|--config-dir|--config=*|--config-dir=*|--policy|--policy=*)
+      die "caller-supplied config path is not accepted"
+      ;;
+    --share-net|--mount)
+      die "command-line network or mount flags are not grants"
+      ;;
+  esac
+}
+
+resolve_real_home() {
+  local uid line home
+  uid="$(/usr/bin/id -u)"
+  line="$(/usr/bin/getent passwd "$uid")" || die "cannot resolve invoking user from the user database"
+  home="$(printf '%s\n' "$line" | /usr/bin/awk -F: 'NR==1 { print $6 }')"
+  [[ -n "$home" && "$home" == /* ]] || die "cannot resolve invoking user home from the user database"
+  [[ ! -L "$home" && -d "$home" ]] || die "invoking user home must be a real directory"
+  REAL_HOME="$(canonical_dir "$home")"
+  CONFIG_DIR="$REAL_HOME/.config/bubblewrap-isolation"
+}
+
 resolve_project() {
   command -v git >/dev/null 2>&1 || die "git is required" 69
   local toplevel
@@ -31,39 +57,14 @@ resolve_project() {
     "$PROJECT"|"$PROJECT"/*) ;;
     *) die "physical working directory is outside the Git project root" ;;
   esac
-  REL_CWD="."
-  if [[ "$WORKDIR" != "$PROJECT" ]]; then
-    REL_CWD="${WORKDIR#"$PROJECT"/}"
-  fi
-}
-
-materialize_committed_approvals() {
-  POLICY_DIR=""
-  git -C "$PROJECT" rev-parse --verify HEAD >/dev/null 2>&1 || return 0
-  git -C "$PROJECT" cat-file -e HEAD:.bwrap/approvals 2>/dev/null || return 0
-  if git -C "$PROJECT" ls-tree -r HEAD .bwrap/approvals | awk '$1 == "120000" { found = 1 } END { exit !found }'; then
-    die "refusing symlink in committed .bwrap/approvals"
-  fi
-  POLICY_DIR="$(mktemp -d)"
-  git -C "$PROJECT" archive --format=tar HEAD:.bwrap/approvals | tar -x -C "$POLICY_DIR"
-  if [[ -n "$(git -C "$PROJECT" status --porcelain -- .bwrap/approvals)" ]]; then
-    printf 'warning: uncommitted .bwrap/approvals changes are ignored until committed\n' >&2
-  fi
-}
-
-cleanup_policy() {
-  if [[ -n "${POLICY_DIR:-}" ]]; then
-    rm -rf -- "$POLICY_DIR"
-    POLICY_DIR=""
-  fi
 }
 
 path_has_symlink_component() {
-  local path="$1" cursor="/" part
+  local path="$1" cursor="" part
   [[ "$path" == /* ]] || return 0
   local rest="${path#/}"
+  local -a parts=()
   IFS=/ read -r -a parts <<<"$rest"
-  cursor=""
   for part in "${parts[@]}"; do
     [[ -n "$part" ]] || return 0
     cursor+="/$part"
@@ -85,6 +86,7 @@ validate_relative() {
   [[ -n "$relative" && "$relative" != "." && "$relative" != ".git" ]] || die "refusing overly broad protected path: $relative"
   [[ "$relative" != /* ]] || die "protected path must be project-relative: $relative"
   [[ "$relative" != *'*'* && "$relative" != *'?'* && "$relative" != *'['* ]] || die "protected path must be literal: $relative"
+  local -a parts=()
   IFS=/ read -r -a parts <<<"$relative"
   for part in "${parts[@]}"; do
     [[ -n "$part" && "$part" != "." && "$part" != ".." ]] || die "unsafe protected path: $relative"
@@ -92,10 +94,9 @@ validate_relative() {
 }
 
 assert_no_symlink_chain() {
-  local root="$1"
-  local relative="$2"
-  local cursor="$root"
-  local part
+  local root="$1" relative="$2" cursor part
+  cursor="$root"
+  local -a parts=()
   IFS=/ read -r -a parts <<<"$relative"
   for part in "${parts[@]}"; do
     cursor+="/$part"
@@ -175,9 +176,6 @@ classify_protected() {
     return 0
   fi
   assert_unique_inode "$path"
-  if [[ "$relative" == ".git/config" || "$relative" == ".git/config" ]]; then
-    :
-  fi
   case "$relative" in
     .git/config|*/config)
       if [[ "$path" == "$(git -C "$PROJECT" rev-parse --absolute-git-dir)/config" || "$relative" == ".git/config" ]]; then
@@ -199,19 +197,440 @@ classify_protected() {
   fi
 }
 
-host_command_allowed() {
-  [[ "$#" -ge 1 ]] || return 1
-  case "$1" in
-    git)
-      [[ "$#" -ge 2 ]] || return 1
-      case "$2" in
-        commit|push) return 0 ;;
-        *) return 1 ;;
+mask_git_pointer() {
+  local pointer="$PROJECT/.git"
+  if [[ -L "$pointer" ]]; then
+    die "refusing symlinked .git"
+  fi
+  if [[ -f "$pointer" ]]; then
+    assert_unique_inode "$pointer"
+    [[ "$(stat -c '%h' -- "$pointer")" == 1 ]] || die "refusing hard-linked .git file"
+    MASKS+=(--ro-bind "$pointer" "$pointer")
+    PROTECTED_ABS+=("$pointer")
+  fi
+}
+
+is_blank_line() {
+  local value="$1"
+  [[ -z "${value//[[:space:]]/}" ]]
+}
+
+valid_program_name() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]
+}
+
+valid_arg_token() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+@=-]*$ || "$1" =~ ^-[A-Za-z0-9][A-Za-z0-9._+@=-]*$ ]]
+}
+
+validate_network_line() {
+  local line="$1" token
+  [[ "$line" != *$'\t'* && "$line" != ' '* && "$line" != *' ' ]] || return 1
+  [[ "$line" != *'  '* ]] || return 1
+  local -a tokens=()
+  read -r -a tokens <<<"$line"
+  [[ "${#tokens[@]}" -ge 1 ]] || return 1
+  for token in "${tokens[@]}"; do
+    valid_arg_token "$token" || return 1
+  done
+}
+
+load_operator_config() {
+  EXTRA_NAMES=()
+  NETWORK_LINES=()
+  HOST_LINES=()
+  local cursor="$REAL_HOME" part
+  for part in .config bubblewrap-isolation; do
+    cursor+="/$part"
+    if [[ -L "$cursor" ]]; then
+      die "refusing symlink in config path: $cursor"
+    fi
+    if [[ ! -e "$cursor" ]]; then
+      return 0
+    fi
+  done
+  [[ -d "$CONFIG_DIR" ]] || die "config path must be a directory: $CONFIG_DIR"
+  shopt -s nullglob dotglob
+  local entry name
+  for entry in "$CONFIG_DIR"/*; do
+    name="${entry##*/}"
+    reject_newline "$name" "config entry"
+    case "$name" in
+      extra-commands|network-commands|host-commands) ;;
+      *) die "unknown config entry: $name" ;;
+    esac
+    [[ ! -L "$entry" ]] || die "refusing symlink in config: $name"
+    [[ -f "$entry" ]] || die "config entry must be a regular file: $name"
+  done
+  shopt -u nullglob dotglob
+  local file line
+  for file in extra-commands network-commands host-commands; do
+    [[ -f "$CONFIG_DIR/$file" && ! -L "$CONFIG_DIR/$file" ]] || continue
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" != *$'\r'* ]] || die "unknown line in $file: $line"
+      if is_blank_line "$line"; then
+        continue
+      fi
+      case "$file" in
+        extra-commands)
+          valid_program_name "$line" || die "unknown line in extra-commands: $line"
+          EXTRA_NAMES+=("$line")
+          ;;
+        network-commands)
+          validate_network_line "$line" || die "unknown line in network-commands: $line"
+          NETWORK_LINES+=("$line")
+          ;;
+        host-commands)
+          [[ "$line" == "git commit" || "$line" == "git push" ]] || die "unknown line in host-commands: $line"
+          HOST_LINES+=("$line")
+          ;;
       esac
-      ;;
-    pre-commit) return 0 ;;
+    done <"$CONFIG_DIR/$file"
+  done
+}
+
+name_listed() {
+  local name="$1" existing
+  for existing in "${EXTRA_NAMES[@]+"${EXTRA_NAMES[@]}"}"; do
+    [[ "$existing" == "$name" ]] && return 0
+  done
+  return 1
+}
+
+argv_matches_line() {
+  local line="$1"
+  shift
+  local -a prefix=()
+  read -r -a prefix <<<"$line"
+  [[ "${#prefix[@]}" -ge 1 && "$#" -ge "${#prefix[@]}" ]] || return 1
+  local i arg
+  for i in "${!prefix[@]}"; do
+    arg="${@:$((i + 1)):1}"
+    [[ "${prefix[$i]}" == "$arg" ]] || return 1
+  done
+}
+
+host_line_matches() {
+  local line
+  for line in "${HOST_LINES[@]+"${HOST_LINES[@]}"}"; do
+    if argv_matches_line "$line" "$@"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+network_line_matches() {
+  local line
+  for line in "${NETWORK_LINES[@]+"${NETWORK_LINES[@]}"}"; do
+    if argv_matches_line "$line" "$@"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_git_host_command() {
+  [[ "$#" -ge 2 && "$1" == git && ( "$2" == commit || "$2" == push ) ]]
+}
+
+host_commands_summary() {
+  local out="" line existing
+  for line in "git commit" "git push"; do
+    for existing in "${HOST_LINES[@]+"${HOST_LINES[@]}"}"; do
+      if [[ "$existing" == "$line" ]]; then
+        out+="${out:+,}$line"
+      fi
+    done
+  done
+  printf '%s' "${out:-none}"
+}
+
+print_status() {
+  local execution="$1" network="$2"
+  shift 2
+  {
+    printf 'bubblewrap-isolation: execution=%s network=%s project=%s host-commands=%s command=' \
+      "$execution" "$network" "$PROJECT" "$(host_commands_summary)"
+    printf '%q' "$1"
+    shift
+    local arg
+    for arg in "$@"; do
+      printf ' %q' "$arg"
+    done
+    printf '\n'
+  } >&2
+}
+
+under_base_prefix() {
+  case "$1" in
+    /usr|/usr/*|/bin|/bin/*|/sbin|/sbin/*|/lib|/lib/*|/lib64|/lib64/*) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+in_base_mounts() {
+  local path="$1" resolved
+  under_base_prefix "$path" || return 1
+  [[ -e "$path" ]] || return 1
+  resolved="$(readlink -f -- "$path")" || return 1
+  under_base_prefix "$resolved"
+}
+
+sandbox_path_dirs() {
+  local dir
+  SANDBOX_PATH=""
+  for dir in /usr/local/bin /usr/local/sbin /usr/bin /bin /usr/sbin /sbin; do
+    if [[ -d "$dir" ]]; then
+      SANDBOX_PATH+="${SANDBOX_PATH:+:}$dir"
+    fi
+  done
+  for dir in "${EXTRA_PATH_DIRS[@]+"${EXTRA_PATH_DIRS[@]}"}"; do
+    SANDBOX_PATH+=":$dir"
+  done
+}
+
+sandbox_visible() {
+  local name="$1" dir
+  sandbox_path_dirs
+  local IFS=':'
+  local -a dirs=()
+  read -r -a dirs <<<"$SANDBOX_PATH"
+  for dir in "${dirs[@]}"; do
+    [[ -n "$dir" && -e "$dir/$name" && ! -d "$dir/$name" ]] || continue
+    if in_base_mounts "$dir/$name"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+in_forbidden_bind_dir() {
+  local physical dir
+  physical="$(readlink -f -- "$1")" || return 0
+  for dir in \
+    "$REAL_HOME/.ssh" \
+    "$REAL_HOME/.gnupg" \
+    "$REAL_HOME/.aws" \
+    "$REAL_HOME/.kube" \
+    "$REAL_HOME/.docker" \
+    "$REAL_HOME/.config/git" \
+    "$REAL_HOME/.config/gh" \
+    "$REAL_HOME/.cache/pre-commit"
+  do
+    case "$physical" in
+      "$dir"|"$dir"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+lookup_host_command() {
+  local name="$1" entry physical candidate
+  local IFS=':'
+  local -a entries=()
+  read -r -a entries <<<"${HOST_PATH:-}"
+  for entry in "${entries[@]}"; do
+    [[ -n "$entry" && -d "$entry" ]] || continue
+    physical="$(canonical_dir "$entry" 2>/dev/null)" || continue
+    case "$physical" in
+      "$PROJECT"|"$PROJECT"/*) continue ;;
+    esac
+    candidate="$entry/$name"
+    [[ -e "$candidate" || -L "$candidate" ]] || continue
+    if [[ -L "$candidate" || -d "$candidate" ]] || path_has_symlink_component "$candidate"; then
+      return 2
+    fi
+    case "$physical" in
+      "$PROJECT"|"$PROJECT"/*) continue ;;
+    esac
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+script_closure_ok() {
+  local file="$1" line interp prog base
+  IFS= read -r line <"$file" || return 1
+  [[ "$line" == '#!'* ]] || return 1
+  line="${line#\#!}"
+  line="${line#"${line%%[![:space:]]*}"}"
+  [[ -n "$line" ]] || return 1
+  local -a parts=()
+  read -r -a parts <<<"$line"
+  interp="${parts[0]}"
+  [[ "$interp" == /* ]] || return 1
+  in_base_mounts "$interp" || return 1
+  base="${interp##*/}"
+  if [[ "$base" == env ]]; then
+    [[ "${#parts[@]}" -ge 2 ]] || return 1
+    prog="${parts[1]}"
+    [[ "$prog" != */* ]] || return 1
+    sandbox_visible "$prog" || return 1
+  fi
+  return 0
+}
+
+rpath_tokens_ok() {
+  local raw="$1" token saved
+  raw="${raw#\[}"
+  raw="${raw%\]}"
+  saved="$IFS"
+  IFS=':'
+  local -a tokens=()
+  read -r -a tokens <<<"$raw"
+  IFS="$saved"
+  [[ "${#tokens[@]}" -ge 1 ]] || return 1
+  for token in "${tokens[@]}"; do
+    [[ "$token" == /* ]] || return 1
+    under_base_prefix "$token" || return 1
+  done
+}
+
+elf_closure_ok() {
+  local file="$1" interp soname resolved raw ldconfig="" candidate
+  interp="$(/usr/bin/readelf -l -- "$file" 2>/dev/null | /usr/bin/sed -n 's/.*Requesting program interpreter: \([^]]*\).*/\1/p')"
+  if [[ -n "$interp" ]]; then
+    in_base_mounts "$interp" || return 1
+  fi
+  while IFS= read -r raw; do
+    [[ -n "$raw" ]] || continue
+    rpath_tokens_ok "$raw" || return 1
+  done < <(/usr/bin/readelf -d -- "$file" 2>/dev/null | /usr/bin/awk '/\(RPATH\)|\(RUNPATH\)/ { print $NF }')
+  for candidate in /sbin/ldconfig /usr/sbin/ldconfig; do
+    if [[ -x "$candidate" ]] && under_base_prefix "$(readlink -f -- "$candidate")"; then
+      ldconfig="$candidate"
+      break
+    fi
+  done
+  while IFS= read -r soname; do
+    [[ -n "$soname" ]] || continue
+    [[ -n "$ldconfig" ]] || return 1
+    resolved="$("$ldconfig" -p 2>/dev/null | /usr/bin/awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
+    [[ -n "$resolved" ]] || return 1
+    in_base_mounts "$resolved" || return 1
+  done < <(/usr/bin/readelf -d -- "$file" 2>/dev/null | /usr/bin/awk '/\(NEEDED\)/ { gsub(/[\[\]]/, "", $NF); print $NF }')
+  return 0
+}
+
+is_elf() {
+  local magic
+  magic="$(/usr/bin/od -An -t x1 -N 4 -- "$1" 2>/dev/null | tr -d ' \n')"
+  [[ "$magic" == "7f454c46" ]]
+}
+
+closure_ok() {
+  local file="$1"
+  [[ -f "$file" && ! -L "$file" && ! -d "$file" ]] || return 1
+  [[ -x "$file" ]] || return 1
+  path_has_symlink_component "$file" && return 1
+  [[ "$(stat -c '%h' -- "$file")" == 1 ]] || return 1
+  in_forbidden_bind_dir "$file" && return 1
+  case "$(readlink -f -- "$file")" in
+    "$PROJECT"|"$PROJECT"/*) return 1 ;;
+  esac
+  if is_elf "$file"; then
+    elf_closure_ok "$file"
+    return
+  fi
+  local mark
+  mark="$(/usr/bin/od -An -t c -N 2 -- "$file" 2>/dev/null | tr -d ' \n')"
+  if [[ "$mark" == "#!" ]]; then
+    script_closure_ok "$file"
+    return
+  fi
+  return 1
+}
+
+classify_invocation() {
+  local cmd="$1" path physical
+  INVOKE_NAME="${cmd##*/}"
+  INVOKE_NEEDS_EXTRA=false
+  INVOKE_BOUND=""
+  INVOKE_PATH=""
+  if [[ "$cmd" == */* ]]; then
+    if [[ "$cmd" == /* ]]; then
+      path="$cmd"
+    else
+      path="$WORKDIR/$cmd"
+    fi
+    if [[ -e "$path" || -L "$path" ]]; then
+      physical="$(readlink -f -- "$path" 2>/dev/null || true)"
+      if [[ -n "$physical" ]]; then
+        case "$physical" in
+          "$PROJECT"|"$PROJECT"/*) return 0 ;;
+        esac
+        if in_base_mounts "$path" || in_base_mounts "$physical"; then
+          return 0
+        fi
+      fi
+    fi
+    if ! name_listed "$INVOKE_NAME"; then
+      die "not in extra-commands: $INVOKE_NAME"
+    fi
+    INVOKE_NEEDS_EXTRA=true
+    INVOKE_PATH="$path"
+    return 0
+  fi
+  if sandbox_visible "$cmd"; then
+    return 0
+  fi
+  if ! name_listed "$cmd"; then
+    die "not in extra-commands: $cmd"
+  fi
+  INVOKE_NEEDS_EXTRA=true
+}
+
+bind_extra_commands() {
+  EXTRA_BINDS=()
+  EXTRA_PATH_DIRS=()
+  local name resolved status parent seen=""
+  for name in "${EXTRA_NAMES[@]+"${EXTRA_NAMES[@]}"}"; do
+    case " $seen " in
+      *" $name "*) continue ;;
+    esac
+    seen+=" $name"
+    resolved=""
+    status=0
+    resolved="$(lookup_host_command "$name")" || status=$?
+    if [[ "$status" -ne 0 ]]; then
+      if [[ "$INVOKE_NEEDS_EXTRA" == true && "$name" == "$INVOKE_NAME" ]]; then
+        die "not available: $name"
+      fi
+      continue
+    fi
+    if ! closure_ok "$resolved"; then
+      if [[ "$INVOKE_NEEDS_EXTRA" == true && "$name" == "$INVOKE_NAME" ]]; then
+        die "not available: $name"
+      fi
+      continue
+    fi
+    EXTRA_BINDS+=(--ro-bind "$resolved" "$resolved")
+    parent="$(dirname "$resolved")"
+    local existing_dir
+    local seen_dir=0
+    for existing_dir in "${EXTRA_PATH_DIRS[@]+"${EXTRA_PATH_DIRS[@]}"}"; do
+      if [[ "$existing_dir" == "$parent" ]]; then
+        seen_dir=1
+      fi
+    done
+    if [[ "$seen_dir" -eq 0 ]]; then
+      EXTRA_PATH_DIRS+=("$parent")
+    fi
+    if [[ "$name" == "$INVOKE_NAME" ]]; then
+      INVOKE_BOUND="$resolved"
+    fi
+  done
+  if [[ "$INVOKE_NEEDS_EXTRA" == true ]]; then
+    [[ -n "$INVOKE_BOUND" ]] || die "not available: $INVOKE_NAME"
+    if [[ -n "$INVOKE_PATH" ]]; then
+      local wanted bound
+      wanted="$(readlink -f -- "$INVOKE_PATH" 2>/dev/null || true)"
+      bound="$(readlink -f -- "$INVOKE_BOUND")"
+      [[ -n "$wanted" && "$wanted" == "$bound" ]] || die "not available: $INVOKE_NAME"
+    fi
+  fi
 }
 
 validate_host_metadata() {
@@ -256,140 +675,18 @@ hooks_fingerprint() {
   } | sha256sum | awk '{print $1}'
 }
 
-forbidden_mount_source() {
-  local src="$1" home
-  case "$src" in
-    /|/etc|/etc/*|/dev|/dev/*|/proc|/proc/*|/sys|/sys/*|/run|/run/*|/boot|/boot/*|/var|/var/*|/tmp|/tmp/*|/usr|/usr/*|/bin|/bin/*|/lib|/lib/*|/lib64|/lib64/*|/sbin|/sbin/*)
-      return 0
-      ;;
-  esac
-  case "$PROJECT" in
-    "$src"|"$src"/*) return 0 ;;
-  esac
-  if [[ -n "${HOME:-}" ]]; then
-    home="$(canonical_dir "$HOME")"
-    [[ "$src" != "$home" ]] || return 0
-    case "$home" in
-      "$src"|"$src"/*) return 0 ;;
-    esac
-    case "$src" in
-      "$home/.ssh"|"$home/.ssh"/*|"$home/.gnupg"|"$home/.gnupg"/*|"$home/.aws"|"$home/.aws"/*|"$home/.kube"|"$home/.kube"/*|"$home/.docker"|"$home/.docker"/*|"$home/.config/git"|"$home/.config/git"/*|"$home/.config/gh"|"$home/.config/gh"/*|"$home/.cache/pre-commit"|"$home/.cache/pre-commit"/*|"$home/.config/bubblewrap-isolation"|"$home/.config/bubblewrap-isolation"/*)
-        return 0
-        ;;
-    esac
-  fi
-  return 1
-}
-
-allowed_network_file() {
-  local src="$1"
-  case "$src" in
-    /etc/resolv.conf|/etc/hosts) [[ -f "$src" && ! -L "$src" ]] ;;
-    /etc/ssl/certs|/etc/pki/tls/certs) [[ -d "$src" && ! -L "$src" ]] ;;
-    *) return 1 ;;
-  esac
-}
-
-validate_mount() {
-  local mode="$1" src="$2"
-  [[ "$mode" == ro || "$mode" == rw ]] || die "mount mode must be ro or rw"
-  [[ "$src" == /* ]] || die "mount source must be absolute: $src"
-  reject_newline "$src" "mount source"
-  path_has_symlink_component "$src" && die "refusing symlink in mount source: $src"
-  [[ -e "$src" ]] || die "mount source does not exist: $src"
-  if [[ -f "$src" ]]; then
-    [[ "$(stat -c '%h' -- "$src")" == 1 ]] || die "refusing hard-linked mount source: $src"
-  elif [[ ! -d "$src" ]]; then
-    die "mount source must be a file or directory: $src"
-  fi
-  local protected dest_parent
-  for protected in "${PROTECTED_ABS[@]+"${PROTECTED_ABS[@]}"}"; do
-    if [[ "$src" == "$protected" ]]; then
-      [[ "$mode" == ro ]] || die "refusing writable mount over protected path: $src"
-      return 0
-    fi
-    case "$protected" in
-      "$src"/*) die "mount would uncover protected path $protected" ;;
-    esac
-  done
-  if allowed_network_file "$src"; then
-    [[ "$mode" == ro ]] || die "network prerequisite mounts must be read-only"
-    return 0
-  fi
-  forbidden_mount_source "$src" && die "refusing mount source: $src"
-  dest_parent="$(dirname "$src")"
-  [[ "$dest_parent" != "$src" ]] || die "refusing mount source: $src"
-}
-
-read_tokens() {
-  local file="$1"
-  TOKEN_BUF=()
-  local token
-  while IFS= read -r -d '' token || [[ -n "$token" ]]; do
-    TOKEN_BUF+=("$token")
-  done <"$file"
-}
-
-command_matches_array() {
-  local match_type="$1" dir="$2"
-  shift 2
-  local -a want=("$@")
-  local i
-  [[ "$(<"$dir/cwd")" == "$REL_CWD" ]] || return 1
-  read_tokens "$dir/command"
-  if [[ "$match_type" == exact ]]; then
-    [[ "${#TOKEN_BUF[@]}" -eq "${#want[@]}" ]] || return 1
-  elif [[ "$match_type" == prefix ]]; then
-    [[ "${#want[@]}" -ge "${#TOKEN_BUF[@]}" && "${#TOKEN_BUF[@]}" -ge 1 ]] || return 1
-  else
-    return 1
-  fi
-  for i in "${!TOKEN_BUF[@]}"; do
-    [[ "${TOKEN_BUF[$i]}" == "${want[$i]}" ]] || return 1
-  done
-}
-
-load_matching_approval() {
-  MATCHED_DIR=""
-  local store id_dir match_type count=0
-  store="${POLICY_DIR:-}"
-  [[ -n "$store" && -d "$store" ]] || return 0
-  [[ ! -L "$store" ]] || die "refusing symlinked approval checkout"
-  for id_dir in "$store"/*; do
-    [[ -d "$id_dir" && ! -L "$id_dir" ]] || continue
-    [[ -f "$id_dir/format" && ! -L "$id_dir/format" ]] || continue
-    [[ "$(<"$id_dir/format")" == "1" ]] || die "unknown approval format: $id_dir"
-    match_type="$(<"$id_dir/match")"
-    local execution
-    execution="$(<"$id_dir/execution")"
-    if command_matches_array "$match_type" "$id_dir" "$@"; then
-      if [[ "$execution" == host ]]; then
-        host_command_allowed "$@" || die "host approval is outside the launcher allowlist"
-        [[ "$match_type" == prefix ]] || die "host approval must be a prefix match"
-      elif [[ "$execution" == sandbox ]]; then
-        [[ "$match_type" == exact ]] || die "sandbox approval must be an exact match"
-      else
-        die "invalid execution record: $execution"
-      fi
-      count=$((count + 1))
-      MATCHED_DIR="$id_dir"
-    fi
-  done
-  [[ "$count" -le 1 ]] || die "multiple approval records match; refusing to combine permissions"
-}
-
 resolve_host_executable() {
   local name="$1" entry physical resolved
   local IFS=':'
-  local -a entries
+  local -a entries=()
   read -r -a entries <<<"${HOST_PATH:-$PATH}"
   for entry in "${entries[@]}"; do
     [[ -n "$entry" && -d "$entry" ]] || continue
-    physical="$(canonical_dir "$entry")" || continue
+    physical="$(canonical_dir "$entry" 2>/dev/null)" || continue
     case "$physical" in
       "$PROJECT"|"$PROJECT"/*) continue ;;
     esac
-    [[ -x "$entry/$name" ]] || continue
+    [[ -x "$entry/$name" && ! -d "$entry/$name" ]] || continue
     resolved="$(readlink -f -- "$entry/$name")"
     case "$resolved" in
       "$PROJECT"|"$PROJECT"/*) continue ;;
@@ -398,141 +695,6 @@ resolve_host_executable() {
     return 0
   done
   return 1
-}
-
-confirm_or_die() {
-  local answer
-  [[ -r /dev/tty && -w /dev/tty ]] || die "record-approval requires a controlling terminal"
-  printf 'Type "approve" to confirm: ' >/dev/tty
-  IFS= read -r answer </dev/tty || die "approval confirmation failed"
-  [[ "$answer" == "approve" ]] || die "approval not confirmed"
-}
-
-record_approval() {
-  local id="" execution="" note="" match="exact" share_net="false" replace=0
-  local -a mounts=() protected_extra=()
-  while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-      --id)
-        id="${2:-}"
-        shift 2
-        ;;
-      --execution)
-        execution="${2:-}"
-        shift 2
-        ;;
-      --note)
-        note="${2:-}"
-        shift 2
-        ;;
-      --match)
-        match="${2:-}"
-        shift 2
-        ;;
-      --share-net)
-        share_net="true"
-        shift
-        ;;
-      --mount)
-        mounts+=("${2:-}" "${3:-}")
-        shift 3
-        ;;
-      --protect)
-        protected_extra+=("${2:-}")
-        shift 2
-        ;;
-      --replace)
-        replace=1
-        shift
-        ;;
-      --)
-        shift
-        break
-        ;;
-      *) usage ;;
-    esac
-  done
-  [[ "$#" -ge 1 ]] || usage
-  [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || die "invalid approval id"
-  [[ "$execution" == sandbox || "$execution" == host ]] || die "execution must be sandbox or host"
-  [[ "$match" == exact || "$match" == prefix ]] || die "match must be exact or prefix"
-  [[ -n "$note" ]] || die "approval note is required"
-  reject_newline "$note" "approval note"
-  if [[ "$execution" == host ]]; then
-    host_command_allowed "$@" || die "host execution is limited to git commit, git push, and pre-commit"
-    [[ "$match" == prefix ]] || die "host approvals must use --match prefix"
-    [[ "$share_net" == false && "${#mounts[@]}" -eq 0 ]] || die "host approvals cannot grant sandbox mounts or network"
-  else
-    [[ "$match" == exact ]] || die "sandbox exceptions must use an exact command match"
-  fi
-  resolve_project
-  local store dest tmp mode src fingerprint="-"
-  [[ ! -L "$PROJECT/.bwrap" ]] || die "refusing symlinked .bwrap"
-  store="$PROJECT/.bwrap/approvals"
-  [[ ! -L "$store" ]] || die "refusing symlinked approval directory"
-  mkdir -p -- "$store"
-  dest="$store/$id"
-  [[ "$replace" -eq 1 || ! -e "$dest" ]] || die "approval id already exists: $id"
-  add_default_protected
-  scan_inodes
-  MASKS=()
-  PROTECTED_ABS=()
-  local relative
-  for relative in "${PROTECTED_RELS[@]}"; do
-    classify_protected "$relative"
-  done
-  mask_git_pointer
-  local i
-  for ((i = 0; i < ${#mounts[@]}; i += 2)); do
-    mode="${mounts[$i]}"
-    src="${mounts[$((i + 1))]}"
-    validate_mount "$mode" "$src"
-  done
-  for relative in "${protected_extra[@]+"${protected_extra[@]}"}"; do
-    validate_relative "$relative"
-  done
-  if [[ "$execution" == host ]]; then
-    fingerprint="$(hooks_fingerprint)"
-  fi
-  [[ -r /dev/tty && -w /dev/tty ]] || die "record-approval requires a controlling terminal"
-  printf 'Project: %s\nExecution: %s\nMatch: %s\nCWD: %s\nNetwork: %s\nCommand:' "$PROJECT" "$execution" "$match" "$REL_CWD" "$share_net" >/dev/tty
-  printf ' %q' "$@" >/dev/tty
-  printf '\n' >/dev/tty
-  if [[ "${#mounts[@]}" -gt 0 ]]; then
-    printf 'Mounts:\n' >/dev/tty
-    for ((i = 0; i < ${#mounts[@]}; i += 2)); do
-      printf '  %s %s\n' "${mounts[$i]}" "${mounts[$((i + 1))]}" >/dev/tty
-    done
-  fi
-  confirm_or_die
-  tmp="$(mktemp -d)"
-  printf '1\n' >"$tmp/format"
-  printf '%s\n' "$execution" >"$tmp/execution"
-  printf '%s\n' "$share_net" >"$tmp/share-net"
-  printf '%s\n' "$match" >"$tmp/match"
-  printf '%s\n' "$REL_CWD" >"$tmp/cwd"
-  printf '%s\n' "$note" >"$tmp/note"
-  printf '%s\n' "$fingerprint" >"$tmp/hooks-fingerprint"
-  printf '%s\0' "$@" >"$tmp/command"
-  : >"$tmp/mounts"
-  for ((i = 0; i < ${#mounts[@]}; i += 2)); do
-    printf '%s\t%s\n' "${mounts[$i]}" "${mounts[$((i + 1))]}" >>"$tmp/mounts"
-  done
-  : >"$tmp/protected"
-  for relative in "${protected_extra[@]+"${protected_extra[@]}"}"; do
-    printf '%s\n' "$relative" >>"$tmp/protected"
-  done
-  chmod 755 "$tmp"
-  chmod 644 "$tmp"/*
-  if [[ -L "$dest" ]]; then
-    die "refusing symlinked approval id"
-  fi
-  if [[ -e "$dest" ]]; then
-    rm -rf -- "$dest"
-  fi
-  mv -- "$tmp" "$dest"
-  printf 'recorded approval %s in .bwrap/approvals/%s\n' "$id" "$id" >&2
-  printf 'inactive until committed; commit it so every clone and machine shares this policy\n' >&2
 }
 
 resolve_bwrap() {
@@ -565,7 +727,7 @@ add_runtime() {
 
 add_project_parents() {
   local mount_parent="" part
-  local -a parts
+  local -a parts=()
   IFS=/ read -r -a parts <<<"${PROJECT#/}"
   for part in "${parts[@]:0:${#parts[@]}-1}"; do
     mount_parent+="/$part"
@@ -578,45 +740,36 @@ copy_network_files() {
   [[ "$SHARE_NET" == true ]] || return 0
   for path in /etc/resolv.conf /etc/hosts; do
     [[ -e "$path" ]] || continue
+    case "$path" in
+      "$REAL_HOME"|"$REAL_HOME"/*) die "refusing to mount host configuration for network: $path" ;;
+    esac
     exec {fd}<"$path"
     NETWORK_FDS+=("$fd")
     NETWORK+=(--ro-bind-data "$fd" "$path")
   done
   for path in /etc/ssl/certs /etc/pki/tls/certs; do
     if [[ -d "$path" && ! -L "$path" ]]; then
+      case "$path" in
+        "$REAL_HOME"|"$REAL_HOME"/*|"$REAL_HOME/.npmrc"|"$REAL_HOME/.cargo"|"$REAL_HOME/.cargo"/*|"$REAL_HOME/.cache/pre-commit"|"$REAL_HOME/.cache/pre-commit"/*)
+          die "refusing to mount host configuration for network: $path"
+          ;;
+      esac
       NETWORK+=(--ro-bind "$path" "$path")
     fi
   done
 }
 
-apply_recorded_mounts() {
-  local line mode src
-  [[ -n "${MATCHED_MOUNTS:-}" && -f "$MATCHED_MOUNTS" ]] || return 0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ -n "$line" ]] || continue
-    mode="${line%%$'\t'*}"
-    src="${line#*$'\t'}"
-    validate_mount "$mode" "$src"
-    if [[ "$mode" == ro ]]; then
-      MOUNTS+=(--ro-bind "$src" "$src")
-    else
-      MOUNTS+=(--bind "$src" "$src")
-    fi
-  done <"$MATCHED_MOUNTS"
-}
-
 run_sandboxed() {
-  local bwrap
+  local bwrap network="off"
   bwrap="$(resolve_bwrap)"
   RUNTIME=()
   PARENTS=()
   NETWORK=()
   NETWORK_FDS=()
-  MOUNTS=()
   add_runtime
   add_project_parents
   copy_network_files
-  apply_recorded_mounts
+  sandbox_path_dirs
   local -a args=(
     --unshare-all
     --unshare-user
@@ -625,69 +778,44 @@ run_sandboxed() {
     --die-with-parent
     --cap-drop ALL
     --clearenv
-    --setenv PATH /usr/bin:/bin:/usr/sbin:/sbin
+    --setenv PATH "$SANDBOX_PATH"
     --setenv HOME /tmp/bwrap-home
     --setenv TMPDIR /tmp
     --setenv PWD "$WORKDIR"
   )
   if [[ "$SHARE_NET" == true ]]; then
     args+=(--share-net)
+    network="on"
   fi
   args+=("${RUNTIME[@]}")
   args+=(--proc /proc --dev /dev --size 1073741824 --tmpfs /tmp --dir /tmp/bwrap-home)
   args+=("${PARENTS[@]+"${PARENTS[@]}"}")
   args+=(--bind "$PROJECT" "$PROJECT")
   args+=("${MASKS[@]+"${MASKS[@]}"}")
-  args+=("${MOUNTS[@]+"${MOUNTS[@]}"}")
-  args+=(--chdir "$WORKDIR" -- "$@")
-  local network="isolated"
-  [[ "$SHARE_NET" == true ]] && network="shared"
-  printf 'bubblewrap-isolation: execution=sandbox network=%s project=%s\n' "$network" "$PROJECT" >&2
+  args+=("${EXTRA_BINDS[@]+"${EXTRA_BINDS[@]}"}")
+  local -a cmd=("$@")
+  if [[ -n "${INVOKE_BOUND:-}" && "$INVOKE_NEEDS_EXTRA" == true ]]; then
+    cmd[0]="$INVOKE_BOUND"
+  fi
+  args+=(--chdir "$WORKDIR" -- "${cmd[@]}")
+  print_status sandbox "$network" "$@"
   exec "$bwrap" "${args[@]}" < /dev/null
 }
 
 run_host() {
-  local resolved
-  host_command_allowed "$@" || die "host execution is limited to git commit, git push, and pre-commit"
-  [[ "$MATCHED_FINGERPRINT" == "$(hooks_fingerprint)" ]] || die "hook or Git config fingerprint changed; record a new approval after review"
+  local fingerprint resolved
+  [[ "$1" == git && ( "$2" == commit || "$2" == push ) ]] || die "host execution is limited to git commit and git push"
+  fingerprint="$(hooks_fingerprint)"
   resolved="$(resolve_host_executable "$1")" || die "refusing host executable resolved inside the project or missing from PATH: $1"
+  [[ "$fingerprint" == "$(hooks_fingerprint)" ]] || die "hook or Git config fingerprint changed; refusing host execution"
+  print_status host host "$@"
   shift
-  printf 'bubblewrap-isolation: execution=host network=host project=%s\n' "$PROJECT" >&2
   cd -- "$WORKDIR"
   exec "$resolved" "$@" < /dev/null
 }
 
-snapshot_match() {
-  MATCHED_EXECUTION=""
-  MATCHED_SHARE_NET="false"
-  MATCHED_FINGERPRINT="-"
-  MATCHED_MOUNTS=""
-  MATCHED_PROTECTED=""
-  [[ -n "$MATCHED_DIR" ]] || return 0
-  MATCHED_EXECUTION="$(<"$MATCHED_DIR/execution")"
-  MATCHED_SHARE_NET="$(<"$MATCHED_DIR/share-net")"
-  MATCHED_FINGERPRINT="$(<"$MATCHED_DIR/hooks-fingerprint")"
-  MATCHED_MOUNTS="$(mktemp)"
-  MATCHED_PROTECTED="$(mktemp)"
-  cp -- "$MATCHED_DIR/mounts" "$MATCHED_MOUNTS"
-  cp -- "$MATCHED_DIR/protected" "$MATCHED_PROTECTED"
-}
-
-run_command() {
-  [[ "$#" -ge 1 ]] || usage
-  resolve_project
-  materialize_committed_approvals
+prepare_project_masks() {
   add_default_protected
-  load_matching_approval "$@"
-  if [[ -n "$MATCHED_DIR" ]]; then
-    local extra
-    while IFS= read -r extra || [[ -n "$extra" ]]; do
-      [[ -n "$extra" ]] || continue
-      append_unique "$extra"
-    done <"$MATCHED_DIR/protected"
-  fi
-  snapshot_match
-  cleanup_policy
   scan_inodes
   MASKS=()
   PROTECTED_ABS=()
@@ -696,37 +824,37 @@ run_command() {
     classify_protected "$relative"
   done
   mask_git_pointer
-  SHARE_NET="false"
-  if [[ "$MATCHED_EXECUTION" == host ]]; then
-    run_host "$@"
-  fi
-  if [[ -n "$MATCHED_EXECUTION" ]]; then
-    SHARE_NET="$MATCHED_SHARE_NET"
-    [[ "$SHARE_NET" == true || "$SHARE_NET" == false ]] || die "invalid share-net record"
-  fi
-  run_sandboxed "$@"
 }
 
-mask_git_pointer() {
-  local pointer="$PROJECT/.git"
-  if [[ -L "$pointer" ]]; then
-    die "refusing symlinked .git"
+run_command() {
+  [[ "$#" -ge 1 ]] || usage
+  resolve_project
+  resolve_real_home
+  load_operator_config
+  prepare_project_masks
+  if is_git_host_command "$@"; then
+    if host_line_matches "$@"; then
+      run_host "$@"
+    fi
+    die "not in host-commands: git $2"
   fi
-  if [[ -f "$pointer" ]]; then
-    assert_unique_inode "$pointer"
-    [[ "$(stat -c '%h' -- "$pointer")" == 1 ]] || die "refusing hard-linked .git file"
-    MASKS+=(--ro-bind "$pointer" "$pointer")
-    PROTECTED_ABS+=("$pointer")
+  classify_invocation "$1"
+  SHARE_NET=false
+  if network_line_matches "$@"; then
+    SHARE_NET=true
   fi
+  bind_extra_commands
+  run_sandboxed "$@"
 }
 
 main() {
   umask 077
-  HOST_PATH="${PATH}"
+  HOST_PATH="${PATH-}"
+  reject_caller_config "${1:-}"
   case "${1:-}" in
     record-approval)
-      shift
-      record_approval "$@"
+      resolve_real_home
+      die "record-approval does not grant authority; edit $REAL_HOME/.config/bubblewrap-isolation (extra-commands, network-commands, host-commands)"
       ;;
     --)
       shift
