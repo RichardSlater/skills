@@ -57,7 +57,10 @@ jobs:
           args: check
           src: skills
 
-      - name: Test Bubblewrap isolation guidance
+      - name: Install Bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Test Bubblewrap isolation launcher
         run: python -m unittest discover -s tests/bubblewrap_isolation -v
 
       - name: Install analysis test dependencies
