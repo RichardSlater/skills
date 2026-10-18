@@ -19,6 +19,7 @@ This repository provides GitHub supply-chain hardening workflows and an OpenSSF 
 | [`bubblewrap-isolation`](skills/bubblewrap-isolation/SKILL.md) | Isolates short-lived agent commands in trusted repositories with private namespaces, a private home, and no network by default. | Project files when commands write them; documented trusted-workflow host exceptions. |
 | [`malicious-intent-analysis`](skills/malicious-intent-analysis/SKILL.md) | Reviews unfamiliar or suspicious artifacts with separate impact, confidence and intent assessments. | No target changes or execution; reports outside the target. |
 | [`opsx-handoff`](skills/opsx-handoff/SKILL.md) | Saves in-flight OpenSpec context for a later session. | Writes only the selected change's `HANDOFF.md`. |
+| [`opsx-rightsize`](skills/opsx-rightsize/SKILL.md) | Challenges oversized OpenSpec plans against the original goal and preserves strict validation. | Edits only selected change artifacts after approval; no application code changes. |
 | [`pre-commit`](skills/pre-commit/SKILL.md) | Verifies repository-specific hooks and signing before approved publication. | Hooks may modify files; commits/pushes require approval. |
 
 ## Repository layout
@@ -57,6 +58,8 @@ skills/
     assets/
       report-template.md
   opsx-handoff/
+    SKILL.md
+  opsx-rightsize/
     SKILL.md
   pre-commit/
     SKILL.md
@@ -100,6 +103,10 @@ Start your coding agent and invoke the skill command:
 The skill will ask for the GitHub organization or user account to analyze, then run the local read-only analysis flow and write remediation proposals. OpenSSF Scorecard runs locally when installed; otherwise, explicit container approval permits a reviewed digest-pinned Scorecard image through Docker, Podman or nerdctl. It never implicitly executes `latest`. It can safely source authentication from `gh auth token` in process memory and forward it as `GITHUB_AUTH_TOKEN` without putting the token in command arguments.
 
 Generated proposals are written under the analysis skill's configured output directory. Treat proposals as potentially sensitive because they may include repository security posture and remediation details.
+
+### Right-size an OpenSpec change
+
+Invoke `/opsx-rightsize <change>` when an OpenSpec change has many tasks or proposes significantly more work than the original request. It asks whether the goal can be achieved with minimal code changes, proposes concrete scope reductions, and updates artifacts only after approval. Strict OpenSpec validation runs before and after edits; required behavior and safeguards must remain covered. If no safe simplification exists, the change stays untouched.
 
 ## Security model
 
