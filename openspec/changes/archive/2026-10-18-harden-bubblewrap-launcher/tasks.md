@@ -1,0 +1,3 @@
+- [x] Restore `run-isolated.sh` with external approvals and fail-closed checks
+- [x] Point the skill at the launcher and update the live spec
+- [x] Cover hard links, host allowlist, hook fingerprint, and ignored `.bwrap.yaml`
