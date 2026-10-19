@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Invoke Windows Chrome DevTools CLI from WSL2 without changing NAT networking.
+set -euo pipefail
+
+script_dir="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=common.sh
+source "$script_dir/common.sh"
+windows_cdp_validate_port
+
+exe=''
+if [[ -n "${WINDOWS_CDP_EXE:-}" ]]; then
+  exe="$WINDOWS_CDP_EXE"
+  if [[ "$exe" =~ ^[a-zA-Z]:[/\\] ]]; then
+    exe="$(wslpath -u "$exe")"
+  fi
+elif command -v chrome-devtools.exe >/dev/null 2>&1; then
+  exe="$(command -v chrome-devtools.exe)"
+else
+  windows_cdp_find_powershell
+  if [[ -n "$ps" ]]; then
+    # No installer, network reconfiguration, elevation, or sandbox bypass.
+    # PowerShell variables must reach Windows without Bash expansion.
+    # shellcheck disable=SC2016
+    if raw_path="$("$ps" -NoProfile -NonInteractive -Command '
+      $candidate = (Get-Command chrome-devtools.exe -ErrorAction SilentlyContinue).Source
+      if (-not $candidate) { $candidate = Join-Path $env:USERPROFILE ".cargo\bin\chrome-devtools.exe" }
+      if (Test-Path -LiteralPath $candidate -PathType Leaf) { Write-Output $candidate }
+    ' </dev/null)"; then
+      win_path="$(printf '%s\n' "$raw_path" | tr -d '\r' | sed '/^[[:space:]]*$/d' | tail -n 1)"
+      if [[ -n "$win_path" ]]; then
+        exe="$(wslpath -u "$win_path")"
+      fi
+    fi
+  fi
+fi
+
+if [[ -z "$exe" || ! -f "$exe" ]]; then
+  cat >&2 <<'MSG'
+windows-cdp: Windows chrome-devtools.exe not found or not accessible.
+Check in Windows PowerShell:
+  Get-Command chrome-devtools.exe -ErrorAction SilentlyContinue
+With user permission, install Rust if needed, then run:
+  cargo install chrome-devtools-cli --version 2.1.1 --locked
+Alternatively set WINDOWS_CDP_EXE to the exact installed .exe path.
+MSG
+  exit 127
+fi
+
+# Disallow overrides before any browser check. Do not inspect positional data
+# after --, or mistake text passed to evaluate/type-text for an option.
+help_only=false
+for arg in "$@"; do
+  case "$arg" in
+    --port|--port=*|--ws-endpoint|--ws-endpoint=*|--user-data-dir|--user-data-dir=*)
+      printf 'windows-cdp: endpoint/profile overrides are not allowed.\n' >&2
+      exit 2
+      ;;
+    --help|-h|--version|-V) help_only=true ;;
+    --) break ;;
+  esac
+done
+if [[ -n "${CHROME_WS_ENDPOINT:-}" ]]; then
+  printf 'windows-cdp: CHROME_WS_ENDPOINT is set; refusing ambiguous browser selection.\n' >&2
+  exit 2
+fi
+
+# --port short-circuits upstream profile discovery. It also conflicts with any
+# CHROME_WS_ENDPOINT inherited from Windows, so a Windows-only setting fails closed.
+if [[ "$help_only" == false ]]; then
+  "$script_dir/windows-chrome" status >/dev/null
+fi
+exec "$exe" --port "$port" "$@" </dev/null
