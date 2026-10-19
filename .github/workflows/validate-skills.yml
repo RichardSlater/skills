@@ -60,6 +60,9 @@ jobs:
       - name: Install Bubblewrap
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
+      - name: Test Windows CDP launchers
+        run: python -m unittest discover -s skills/windows-cdp/tests -v
+
       - name: Test Bubblewrap isolation launcher
         run: python -m unittest discover -s tests/bubblewrap_isolation -v
 
@@ -89,3 +92,15 @@ jobs:
       - name: Verify GitHub Actions are covered by Dependabot
         run: |
           grep -q "package-ecosystem: github-actions" .github/dependabot.yml
+
+  windows-cdp-host:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test native argument parsing on Windows PowerShell 5.1
+        shell: powershell
+        run: .\skills\windows-cdp\tests\test_chrome_host.ps1

@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Launch or verify isolated Windows Chrome without modifying WSL2 NAT networking.
+set -euo pipefail
+
+usage() {
+  cat <<'HELP'
+Usage: windows-chrome start [url]
+       windows-chrome status
+
+Launch Chrome in %LOCALAPPDATA%\Chrome-CDP-Agent\Profile on Windows,
+with CDP on Windows loopback (default port 9222). On start, reuse only
+an existing Chrome instance verified to own this profile and CDP port.
+
+Optional: WINDOWS_CDP_PORT=9222. No mirrored networking or portproxy.
+HELP
+}
+
+action="${1:-}"
+case "$action" in
+  start)
+    if (( $# > 2 )); then usage >&2; exit 2; fi
+    url="${2:-about:blank}"
+    ;;
+  status)
+    if (( $# != 1 )); then usage >&2; exit 2; fi
+    url='about:blank'
+    ;;
+  -h|--help|help)
+    usage; exit 0
+    ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+script_dir="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=common.sh
+source "$script_dir/common.sh"
+windows_cdp_validate_port
+windows_cdp_find_powershell
+if [[ -z "$ps" ]]; then
+  printf 'windows-chrome: Windows PowerShell is inaccessible from WSL; check interop permissions.\n' >&2
+  exit 127
+fi
+if ! command -v iconv >/dev/null || ! command -v base64 >/dev/null; then
+  printf 'windows-chrome: iconv and base64 are required.\n' >&2
+  exit 127
+fi
+
+script="$script_dir/chrome-host.ps1"
+if [[ ! -f "$script" ]]; then
+  printf 'windows-chrome: missing %s\n' "$script" >&2
+  exit 127
+fi
+
+# EncodedCommand avoids assumptions about WSL UNC paths and PowerShell execution policy.
+# Only base64-encoded user data is appended; no URL is ever evaluated as shell code.
+url_b64="$(printf '%s' "$url" | base64 -w0)"
+body="$(cat "$script")"
+cmd=$(printf 'function Invoke-ChromeHostEntry {\n%s\n}\nInvoke-ChromeHostEntry -Action "%s" -Port %d -StartUrl ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("%s")))\n' "$body" "$action" "$port" "$url_b64")
+encoded="$(printf '%s' "$cmd" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)"
+# Windows command-line limit (~32K chars): refuse rather than truncate.
+if (( ${#encoded} > 30000 )); then
+  printf 'windows-chrome: PowerShell command is too long.\n' >&2
+  exit 2
+fi
+"$ps" -NoProfile -NonInteractive -EncodedCommand "$encoded" </dev/null
