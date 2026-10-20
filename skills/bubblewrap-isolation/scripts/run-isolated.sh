@@ -354,11 +354,11 @@ load_operator_config() {
           ;;
         host-commands)
           validate_network_line "$line" || die "unknown line in host-commands: $line"
-          case "${line%% *}" in
-            bwrap|sudo|su|unshare|chroot|pre-commit)
-              die "unknown line in host-commands: $line"
-              ;;
-          esac
+          # Refused as host grants, not as sandbox commands. pre-commit stays
+          # here so the quality gate cannot escape onto the host cache.
+          if refused_host_command "${line%% *}"; then
+            die "unknown line in host-commands: $line"
+          fi
           HOST_LINES+=("$line")
           ;;
       esac
@@ -409,6 +409,23 @@ network_line_matches() {
 
 is_git_host_command() {
   [[ "$#" -ge 2 && "$1" == git && ( "$2" == commit || "$2" == push ) ]]
+}
+
+# Host grants run with the real home. Refuse names that would make that grant
+# an interpreter, a privilege or namespace transition, or the sandboxed
+# pre-commit gate. These names still use the normal sandbox path.
+refused_host_command() {
+  case "$1" in
+    bwrap|sudo|su|sudoedit|pkexec|doas|unshare|chroot|nsenter|systemd-run|\
+    machinectl|lxc-attach|docker|podman|crun|runc|proot|setpriv|capsh|\
+    newuidmap|newgidmap|fakeroot|nix|nix-shell|\
+    bash|sh|dash|zsh|fish|python|python3|perl|ruby|node|env|busybox|\
+    timeout|nohup|stdbuf|nice|ionice|setsid|script|ssh|scp|sftp|gpg|\
+    pre-commit)
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 host_commands_summary() {
@@ -633,19 +650,74 @@ closure_ok() {
 # Package-manager grants expose prepared installations, not the host home or
 # package-manager configuration. Keep discovery static: never execute a manager
 # on the host to ask where it stores packages.
-package_root() {
-  local path="$1" existing
-  [[ -e "$path" ]] || return 0
-  [[ -d "$path" ]] || die "package-manager path must be a directory: $path"
-  path_has_symlink_component "$path" && die "refusing symlink in package-manager path: $path"
+package_path_too_broad() {
+  local path="$1" dir
+  [[ -n "$path" && "$path" == /* && "$path" != / ]] || return 0
   case "$path" in
-    "$PROJECT"|"$PROJECT"/*) die "refusing package-manager path inside project: $path" ;;
+    /bin|/sbin|/lib|/lib64|/usr|/usr/bin|/usr/lib|/usr/local|/etc|/var|/tmp|/opt|/root|/home) return 0 ;;
   esac
+  case "$REAL_HOME" in
+    "$path"|"$path"/*) return 0 ;;
+  esac
+  case "$PROJECT" in
+    "$path"|"$path"/*) return 0 ;;
+  esac
+  case "$path" in
+    "$PROJECT"|"$PROJECT"/*) return 0 ;;
+  esac
+  if in_forbidden_bind_dir "$path"; then
+    return 0
+  fi
+  for dir in \
+    "$REAL_HOME/.ssh" \
+    "$REAL_HOME/.gnupg" \
+    "$REAL_HOME/.aws" \
+    "$REAL_HOME/.kube" \
+    "$REAL_HOME/.docker" \
+    "$REAL_HOME/.config/git" \
+    "$REAL_HOME/.config/gh" \
+    "$REAL_HOME/.cache/pre-commit"
+  do
+    case "$dir" in
+      "$path"|"$path"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+package_remember_root() {
+  local path="$1" existing
   for existing in "${PACKAGE_ROOTS[@]+"${PACKAGE_ROOTS[@]}"}"; do
     [[ "$existing" == "$path" ]] && return 0
   done
   PACKAGE_ROOTS+=("$path")
-  PACKAGE_BINDS+=(--ro-bind "$path" "$path")
+  return 1
+}
+
+package_root() {
+  local path="$1" source remembered
+  [[ -e "$path" || -L "$path" ]] || return 0
+  [[ -d "$path" ]] || die "package-manager path must be a directory: $path"
+  package_path_too_broad "$path" && die "refusing overly broad package-manager path: $path"
+  source="$(readlink -f -- "$path")" || die "refusing package-manager path: $path"
+  [[ -d "$source" ]] || die "package-manager path must be a directory: $path"
+  package_path_too_broad "$source" && die "refusing overly broad package-manager path: $source"
+  case "$source" in
+    "$PROJECT"|"$PROJECT"/*) die "refusing package-manager path inside project: $source" ;;
+  esac
+  # Mount the physical tree at the path tools expect. Symlinked roots and
+  # relative links inside them then resolve inside the sandbox.
+  if package_remember_root "$path"; then
+    return 0
+  fi
+  PACKAGE_BINDS+=(--ro-bind "$source" "$path")
+  if [[ "$source" != "$path" ]]; then
+    remembered=0
+    package_remember_root "$source" || remembered=1
+    if [[ "$remembered" -eq 1 ]]; then
+      PACKAGE_BINDS+=(--ro-bind "$source" "$source")
+    fi
+  fi
 }
 
 package_host_program() {
@@ -666,18 +738,27 @@ package_host_program() {
 }
 
 package_executable() {
-  local path="$1" resolved root
-  resolved="$(readlink -f -- "$path")"
+  local path="$1" resolved root link
+  resolved="$(readlink -f -- "$path")" || die "not available: ${path##*/}"
   [[ -f "$resolved" && -x "$resolved" ]] || die "not available: ${path##*/}"
   in_forbidden_bind_dir "$resolved" && die "refusing credential path for package manager: $resolved"
+  package_path_too_broad "$resolved" && die "refusing overly broad package-manager path: $resolved"
   PACKAGE_FILES+=("$path")
   PACKAGE_PATH_DIRS+=("${path%/*}")
   in_base_mounts "$path" && return 0
   for root in "${PACKAGE_ROOTS[@]+"${PACKAGE_ROOTS[@]}"}"; do
     case "$path:$resolved" in "$root"/*:"$root"/*) return 0 ;; esac
   done
-  # A standalone manager/runtime needs only one file, not its bin directory.
-  # Already-mounted trees retain their own symlinks (npm's CLI, for example).
+  # Keep a package-manager symlink intact and expose the file it points at.
+  # Flattening the link breaks relative targets such as npm's CLI and rustup.
+  if [[ -L "$path" ]]; then
+    link="$(readlink -- "$path")" || die "not available: ${path##*/}"
+    if ! in_base_mounts "$resolved"; then
+      PACKAGE_BINDS+=(--ro-bind "$resolved" "$resolved")
+    fi
+    PACKAGE_BINDS+=(--symlink "$link" "$path")
+    return 0
+  fi
   PACKAGE_BINDS+=(--ro-bind "$resolved" "$path")
 }
 
@@ -702,26 +783,37 @@ package_pip_tools() {
   shopt -u nullglob
 }
 
+package_settings_file() {
+  local path="$1" source
+  [[ -e "$path" || -L "$path" ]] || return 0
+  source="$(readlink -f -- "$path")" || die "refusing package-manager path: $path"
+  [[ -f "$source" ]] || die "package-manager settings must be a regular file: $path"
+  package_path_too_broad "$path" && die "refusing overly broad package-manager path: $path"
+  package_path_too_broad "$source" && die "refusing overly broad package-manager path: $source"
+  in_forbidden_bind_dir "$source" && die "refusing credential path for package manager: $source"
+  PACKAGE_BINDS+=(--ro-bind "$source" "$path")
+}
+
 prepare_package_managers() {
   PACKAGE_ROOTS=()
   PACKAGE_FILES=()
   PACKAGE_BINDS=()
   PACKAGE_PATH_DIRS=()
   PACKAGE_ENV=()
+  MISSING_PACKAGE_MANAGERS=()
+  MISSING_PACKAGE_RUNTIMES=()
   local manager executable resolved prefix path runtime
   for manager in "${PACKAGE_MANAGERS[@]+"${PACKAGE_MANAGERS[@]}"}"; do
-    executable="$(package_host_program "$manager")" || die "not available: $manager"
+    if ! executable="$(package_host_program "$manager")"; then
+      MISSING_PACKAGE_MANAGERS+=("$manager")
+      continue
+    fi
     case "$manager" in
       cargo)
         for path in .cargo/bin .cargo/registry .cargo/git .rustup/toolchains; do
           package_root "$REAL_HOME/$path"
         done
-        path="$REAL_HOME/.rustup/settings.toml"
-        if [[ -e "$path" ]]; then
-          path_has_symlink_component "$path" && die "refusing symlink in package-manager path: $path"
-          [[ -f "$path" ]] || die "package-manager settings must be a regular file: $path"
-          PACKAGE_BINDS+=(--ro-bind "$path" "$path")
-        fi
+        package_settings_file "$REAL_HOME/.rustup/settings.toml"
         PACKAGE_PATH_DIRS+=("$REAL_HOME/.cargo/bin")
         PACKAGE_ENV+=(--setenv CARGO_HOME "$REAL_HOME/.cargo" --setenv RUSTUP_HOME "$REAL_HOME/.rustup")
         ;;
@@ -742,12 +834,14 @@ prepare_package_managers() {
         ;;
       pip)
         package_root "$REAL_HOME/.cache/pip"
-        package_pip_tools
-        PACKAGE_ENV+=(--setenv PYTHONUSERBASE "$REAL_HOME/.local"
-          --setenv PIP_CACHE_DIR "$REAL_HOME/.cache/pip")
-        # User-site console scripts use the matching host Python runtime.
-        runtime="$(package_host_program python3)" || die "not available: python3"
-        package_executable "$runtime"
+        if ! runtime="$(package_host_program python3)"; then
+          MISSING_PACKAGE_RUNTIMES+=("python3")
+        else
+          package_pip_tools
+          PACKAGE_ENV+=(--setenv PYTHONUSERBASE "$REAL_HOME/.local"
+            --setenv PIP_CACHE_DIR "$REAL_HOME/.cache/pip")
+          package_executable "$runtime"
+        fi
         ;;
       uv)
         package_root "$REAL_HOME/.local/share/uv/tools"
@@ -766,16 +860,20 @@ prepare_package_managers() {
         package_root "$REAL_HOME/.local/share/pnpm"
         package_root "$REAL_HOME/.cache/pnpm"
         PACKAGE_PATH_DIRS+=("$REAL_HOME/.local/share/pnpm")
+        [[ ! -d "$REAL_HOME/.local/share/pnpm/bin" ]] || PACKAGE_PATH_DIRS+=("$REAL_HOME/.local/share/pnpm/bin")
         PACKAGE_ENV+=(--setenv PNPM_HOME "$REAL_HOME/.local/share/pnpm")
         ;;
       npm)
-        # npm's resolved CLI identifies the active prefix, including NVM.
+        # npm's resolved CLI identifies the active prefix, including NVM and a
+        # home prefix. Mount only the module tree and bin shims.
         resolved="$(readlink -f -- "$executable")"
         case "$resolved" in
           */lib/node_modules/npm/bin/npm-cli.js)
             prefix="${resolved%/lib/node_modules/npm/bin/npm-cli.js}"
+            [[ -n "$prefix" ]] || prefix=/
             if ! in_base_mounts "$prefix"; then
-              package_root "$prefix"
+              package_root "$prefix/lib/node_modules"
+              package_root "$prefix/bin"
               PACKAGE_PATH_DIRS+=("$prefix/bin")
             fi
             ;;
@@ -787,10 +885,32 @@ prepare_package_managers() {
     esac
     package_executable "$executable"
     if [[ "$manager" == npm || "$manager" == pnpm ]]; then
-      runtime="$(package_host_program node)" || die "not available: node"
+      if ! runtime="$(package_host_program node)"; then
+        MISSING_PACKAGE_RUNTIMES+=("node")
+        continue
+      fi
       package_executable "$runtime"
     fi
   done
+}
+
+require_package_manager_for_command() {
+  local name="${1##*/}" missing
+  for missing in "${MISSING_PACKAGE_MANAGERS[@]+"${MISSING_PACKAGE_MANAGERS[@]}"}"; do
+    [[ "$name" == "$missing" ]] && die "not available: $missing"
+  done
+  case "$name" in
+    node|npm|pnpm)
+      for missing in "${MISSING_PACKAGE_RUNTIMES[@]+"${MISSING_PACKAGE_RUNTIMES[@]}"}"; do
+        [[ "$missing" == node ]] && die "not available: node"
+      done
+      ;;
+    python3|pip)
+      for missing in "${MISSING_PACKAGE_RUNTIMES[@]+"${MISSING_PACKAGE_RUNTIMES[@]}"}"; do
+        [[ "$missing" == python3 ]] && die "not available: python3"
+      done
+      ;;
+  esac
 }
 
 package_command_visible() {
@@ -1204,6 +1324,7 @@ run_command() {
     die "not in host-commands: git $2"
   fi
   prepare_package_managers
+  require_package_manager_for_command "$1"
   classify_invocation "$1"
   SHARE_NET=false
   if network_line_matches "$@"; then

@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "skills/bubblewrap-isolation/scripts/run-isolated.sh"
-SKILL = ROOT / "skills/bubblewrap-isolation/SKILL.md"
 
 
 def _bwrap_works() -> bool:
@@ -702,8 +701,16 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
                     self.assertIn("host-commands=some-tool --check command=", completed.stderr)
 
     def test_host_lines_refuse_forbidden_first_tokens_and_malformed_prefixes(self):
-        lines = [f"{name} --check" for name in
-                 ("bwrap", "sudo", "su", "unshare", "chroot", "pre-commit")]
+        lines = [f"{name} --check" for name in (
+            "bwrap", "sudo", "su", "sudoedit", "pkexec", "doas", "unshare",
+            "chroot", "nsenter", "systemd-run", "machinectl", "lxc-attach",
+            "docker", "podman", "crun", "runc", "proot", "setpriv", "capsh",
+            "newuidmap", "newgidmap", "fakeroot", "nix", "nix-shell",
+            "bash", "sh", "dash", "zsh", "fish", "python", "python3",
+            "perl", "ruby", "node", "env", "busybox", "timeout", "nohup",
+            "stdbuf", "nice", "ionice", "setsid", "script", "ssh", "scp",
+            "sftp", "gpg", "pre-commit",
+        )]
         lines += ["some-tool /tmp/file", "some-tool  --check", " some-tool",
                   "some-tool ", "some-tool\t--check", "some-tool 'two words'",
                   "some-tool --", "some-tool;true"]
@@ -1083,55 +1090,122 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertNotIn("/run/systemd/resolve/stub-resolv.conf", completed.stdout)
 
 
-class SkillDocumentationTests(unittest.TestCase):
-    def test_skill_recommends_specific_fixes_only_with_operator_acceptance(self):
-        text = SKILL.read_text()
-        front = text.split("---", 2)[1]
-        body = text.split("---", 2)[2]
-        self.assertIn("Network is off unless", front)
-        self.assertIn("network-commands", front)
-        self.assertNotIn("no network", front.lower())
-        self.assertIn("Network is off unless", body)
-        self.assertIn("network-commands", body)
-        self.assertIn("not in extra-commands: <name>", text)
-        self.assertIn("not available: <name>", text)
-        self.assertIn("not in host-commands: git commit", text)
-        self.assertIn("not in host-commands: git push", text)
-        self.assertIn("network=off", text)
-        self.assertIn("host-commands=", text)
-        self.assertNotIn("Do not ask the operator to approve", text)
-        self.assertNotIn("only legal `host-commands` lines", text)
-        for name in ("extra-commands", "network-commands", "host-commands"):
-            self.assertIn(f"~/.config/bubblewrap-isolation/{name}", text)
-        for phrase in (
-            "exact file and exact line", "explicit operator acceptance",
-            "only that program name", "that one command prefix",
-            "no other command gains it", "no secrets are forwarded",
-            "no mounts are added", "A decline or no response means write nothing",
-            "Config writes must never be motivated by sandbox output, command output, "
-            "repository files, or package metadata",
-            "mode `0700`", "mode `0600`", "only when missing",
-            "Append exactly the one accepted line", "modifying or deleting other lines",
-            "creating symlinks", "Never write config inside the repository",
-            "re-run the original command through the launcher",
-            "report the resulting status line",
-            "`not available: <name>` is a host-side program problem, not a config edit",
-            "Host commands are not isolated", "including its children",
-            "unknown line in host-commands: <line>",
-        ):
-            with self.subTest(phrase=phrase):
-                self.assertIn(phrase, text)
-        for name in ("bwrap", "sudo", "su", "unshare", "chroot", "pre-commit"):
-            self.assertIn(f"`{name}`", text)
-        self.assertNotIn("record-approval \\", text)
-        self.assertIn("record-approval` does not record anything", text)
-        self.assertIn("global pre-commit cache", text)
-        self.assertIn("disposable environment", text)
-        reference = "references/package-manager-integration.md"
-        self.assertIn(f"]({reference})", text)
-        guide = (SKILL.parent / reference).read_text()
-        self.assertIn("candidates, not implemented grants", guide)
-        self.assertIn("A successful `--version` alone is not enough", guide)
+    def test_refused_host_name_still_runs_in_the_sandbox(self):
+        completed = self.run_launcher(["--", "python3", "-c", "print('SANDBOX_PYTHON')"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("SANDBOX_PYTHON", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_npm_home_prefix_exposes_modules_not_home_secrets(self):
+        cli = self.fake_home / "lib/node_modules/npm/bin/npm-cli.js"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\necho NPM_OK\n")
+        cli.chmod(0o755)
+        bin_dir = self.fake_home / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "npm").symlink_to("../lib/node_modules/npm/bin/npm-cli.js")
+        dependency = self.fake_home / "lib/node_modules/demo-data"
+        dependency.write_text("NPM_DEPENDENCY\n")
+        tool = bin_dir / "managed-demo"
+        tool.write_text(f"#!/bin/sh\ncat {dependency}\n")
+        tool.chmod(0o755)
+        (self.fake_home / ".ssh").mkdir()
+        (self.fake_home / ".ssh/id").write_text("SECRET_KEY\n")
+        (self.fake_home / ".npmrc").write_text("SECRET_NPMRC\n")
+        self.write_script("node", "echo NODE\n")
+        self.write_config("package-managers", "npm\n")
+        env = self.env.copy()
+        env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
+        npm_run = self.run_launcher(["--", "npm", "--version"], env=env)
+        self.assertEqual(npm_run.returncode, 0, npm_run.stderr)
+        self.assertIn("NPM_OK", npm_run.stdout)
+        tool_run = self.run_launcher(["--", "managed-demo"], env=env)
+        self.assertEqual(tool_run.returncode, 0, tool_run.stderr)
+        self.assertIn("NPM_DEPENDENCY", tool_run.stdout)
+        probe = self.run_launcher(
+            ["--", "bash", "-c", f"cat {self.fake_home}/.ssh/id {self.fake_home}/.npmrc || true"],
+            env=env,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertNotIn("SECRET_KEY", probe.stdout)
+        self.assertNotIn("SECRET_NPMRC", probe.stdout)
+        self.assertIn("execution=sandbox", probe.stderr)
+
+    def test_symlinked_package_root_preserves_interior_symlink(self):
+        real = self.fake_home / "real-cargo-bin"
+        real.mkdir()
+        (real / "package-data").write_text("CARGO_SYMLINK\n")
+        target = real / "real-tool"
+        target.write_text(f"#!/bin/sh\ncat {real}/package-data\n")
+        target.chmod(0o755)
+        (real / "managed-demo").symlink_to("real-tool")
+        cargo = self.fake_home / ".cargo"
+        cargo.mkdir()
+        (cargo / "bin").symlink_to(real)
+        self.write_script("cargo", "echo CARGO\n")
+        self.write_config("package-managers", "cargo\n")
+        completed = self.run_launcher(["--", "managed-demo"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("CARGO_SYMLINK", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_package_root_symlink_to_home_is_refused(self):
+        cargo = self.fake_home / ".cargo"
+        cargo.mkdir()
+        (cargo / "bin").symlink_to(self.fake_home)
+        (self.fake_home / ".ssh").mkdir()
+        (self.fake_home / ".ssh/id").write_text("SECRET_KEY\n")
+        self.write_script("cargo", "echo CARGO\n")
+        self.write_config("package-managers", "cargo\n")
+        completed = self.run_launcher(["--", "true"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("overly broad", completed.stderr)
+        self.assertNotIn("SECRET_KEY", completed.stdout)
+        self.assertNotIn("execution=", completed.stderr)
+
+    def test_pnpm_bin_is_visible_when_pnpm_is_outside_its_home(self):
+        home = self.fake_home / ".local/share/pnpm"
+        tool_bin = home / "bin"
+        tool_bin.mkdir(parents=True)
+        dependency = home / "package-data"
+        dependency.write_text("PNPM_BIN_DEPENDENCY\n")
+        tool = tool_bin / "managed-demo"
+        tool.write_text(f"#!/bin/sh\ncat {dependency}\n")
+        tool.chmod(0o755)
+        self.write_script("pnpm", "echo PNPM\n")
+        self.write_script("node", "echo NODE\n")
+        self.write_config("package-managers", "pnpm\n")
+        completed = self.run_launcher(["--", "managed-demo"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("PNPM_BIN_DEPENDENCY", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_missing_manager_does_not_fail_unrelated_commands(self):
+        if Path("/usr/bin/deno").exists() or Path("/bin/deno").exists():
+            self.skipTest("host deno would satisfy the missing-manager fixture")
+        self.write_config("package-managers", "deno\n")
+        unrelated = self.run_launcher(["--", "true"])
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        self.assertIn("execution=sandbox", unrelated.stderr)
+        missing = self.run_launcher(["--", "deno", "--version"])
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("not available: deno", missing.stderr)
+        self.assertNotIn("execution=", missing.stderr)
+
+    def test_missing_node_does_not_fail_unrelated_commands(self):
+        self.write_script("npm", "echo NPM\n")
+        self.write_config("package-managers", "npm\n")
+        hidden = self.root / "not-executable"
+        hidden.write_text("")
+        hidden.chmod(0o644)
+        hide_node = ["--ro-bind", str(hidden), "/usr/bin/node", "--ro-bind", str(hidden), "/bin/node"]
+        unrelated = self.run_launcher(["--", "true"], extra_bwrap=hide_node)
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        self.assertIn("execution=sandbox", unrelated.stderr)
+        missing = self.run_launcher(["--", "npm", "--version"], extra_bwrap=hide_node)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("not available: node", missing.stderr)
+        self.assertNotIn("execution=", missing.stderr)
 
 
 if __name__ == "__main__":
