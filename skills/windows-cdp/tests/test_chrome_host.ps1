@@ -98,31 +98,46 @@ $script:listener = $null
 function Get-ProfileProcesses { @() }
 function Test-Path { $true }
 function Start-Sleep { throw 'stop after capture' }
-$env:LOCALAPPDATA = Join-Path ([IO.Path]::GetTempPath()) ('Chrome Host Tests ' + [guid]::NewGuid())
+# Redirect the launcher's profile and lock paths into a fresh, test-owned
+# temporary directory so the section below can never touch real user data.
+$previousLocalAppData = $env:LOCALAPPDATA
+$testLocalAppData = Join-Path ([IO.Path]::GetTempPath()) ('Chrome Host Tests ' + [guid]::NewGuid())
+$env:LOCALAPPDATA = $testLocalAppData
 $env:ProgramFiles = [IO.Path]::GetTempPath()
-try { Invoke-ChromeHost -Action start -Port 9222 -StartUrl 'https://example.test/?a=1&b=2' } catch {
-    if ($_.Exception.Message -ne 'stop after capture') { throw }
-}
-Assert-True ($script:launchLine -is [string]) 'Arguments must be explicitly joined'
-$expected = Join-Path $env:LOCALAPPDATA 'Chrome-CDP-Agent\Profile'
-Assert-True ($script:launchLine.Contains("--user-data-dir=`"$expected`"")) 'Profile not quoted'
-if ($script:nativeWindows) {
-    $actual = @(Split-WindowsCommandLine ('chrome.exe ' + $script:launchLine))
-    Assert-True ($actual.Count -eq 9) 'Windows argument round trip changed count'
-    Assert-True ($actual[3] -eq "--user-data-dir=$expected") 'Windows split the profile path'
-    Assert-True ($actual[8] -eq 'https://example.test/?a=1&b=2') 'Windows changed URL data'
-}
-# A held lock refuses a concurrent start and the finally block releases it after failure.
-$lockPath = Join-Path $env:LOCALAPPDATA 'Chrome-CDP-Agent/launcher.lock'
-$heldLock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate,
-    [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 try {
-    $script:launchLine = $null
-    Assert-Throws { Invoke-ChromeHost -Action start -Port 9222 -StartUrl 'about:blank' } 'Concurrent start accepted'
-    Assert-True ($null -eq $script:launchLine) 'Concurrent start launched Chrome'
-} finally { $heldLock.Dispose() }
-foreach ($url in @('file:///sensitive', 'javascript:alert(1)', 'https://example.test/"quoted"', 'http://bad url')) {
-    Assert-Throws { Invoke-ChromeHost -Action start -Port 9222 -StartUrl $url } 'Invalid URL accepted'
+    try { Invoke-ChromeHost -Action start -Port 9222 -StartUrl 'https://example.test/?a=1&b=2' } catch {
+        if ($_.Exception.Message -ne 'stop after capture') { throw }
+    }
+    Assert-True ($script:launchLine -is [string]) 'Arguments must be explicitly joined'
+    $expected = Join-Path $env:LOCALAPPDATA 'Chrome-CDP-Agent\Profile'
+    Assert-True ($script:launchLine.Contains("--user-data-dir=`"$expected`"")) 'Profile not quoted'
+    if ($script:nativeWindows) {
+        $actual = @(Split-WindowsCommandLine ('chrome.exe ' + $script:launchLine))
+        Assert-True ($actual.Count -eq 9) 'Windows argument round trip changed count'
+        Assert-True ($actual[3] -eq "--user-data-dir=$expected") 'Windows split the profile path'
+        Assert-True ($actual[8] -eq 'https://example.test/?a=1&b=2') 'Windows changed URL data'
+    }
+    # A held lock refuses a concurrent start and the finally block releases it after failure.
+    $lockPath = Join-Path $env:LOCALAPPDATA 'Chrome-CDP-Agent/launcher.lock'
+    $heldLock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    try {
+        $script:launchLine = $null
+        Assert-Throws { Invoke-ChromeHost -Action start -Port 9222 -StartUrl 'about:blank' } 'Concurrent start accepted'
+        Assert-True ($null -eq $script:launchLine) 'Concurrent start launched Chrome'
+    } finally { $heldLock.Dispose() }
+    foreach ($url in @('file:///sensitive', 'javascript:alert(1)', 'https://example.test/"quoted"', 'http://bad url')) {
+        Assert-Throws { Invoke-ChromeHost -Action start -Port 9222 -StartUrl $url } 'Invalid URL accepted'
+    }
+    Write-Output 'PowerShell host regression tests passed (Windows services mocked).'
+} finally {
+    # Restore the operator's environment, then remove only the test-owned
+    # temporary directory. The guards ensure the removal can never address
+    # the real user profile path or the temporary root itself.
+    $env:LOCALAPPDATA = $previousLocalAppData
+    if ($testLocalAppData -and
+        $testLocalAppData -ne [IO.Path]::GetTempPath() -and
+        $testLocalAppData.StartsWith([IO.Path]::GetTempPath(), [System.StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $testLocalAppData -Recurse -Force
+    }
 }
-Remove-Item -LiteralPath $env:LOCALAPPDATA -Recurse -Force
-Write-Output 'PowerShell host regression tests passed (Windows services mocked).'
