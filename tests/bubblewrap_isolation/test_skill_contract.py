@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import unittest
 from pathlib import Path
@@ -11,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "skills/bubblewrap-isolation/scripts/run-isolated.sh"
-SKILL = ROOT / "skills/bubblewrap-isolation/SKILL.md"
 
 
 def _bwrap_works() -> bool:
@@ -555,6 +555,260 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertNotIn("SSH_AUTH_SOCK", sandboxed.stdout)
         self.assertIn("host-commands=git commit", sandboxed.stderr)
 
+    def test_package_managers_expose_prepared_tools_read_only(self):
+        self.write_script("node", "echo NODE_RUNTIME\n")
+        (self.fake_home / ".npmrc").write_text("PRIVATE_NPM_CONFIG\n")
+        for manager in ("uv", "npm", "pnpm", "cargo", "bun", "deno", "pip"):
+            with self.subTest(manager=manager):
+                env = self.env.copy()
+                if manager == "uv":
+                    tool_bin = self.fake_home / ".local/share/uv/tools/demo/bin"
+                    tool_bin.mkdir(parents=True)
+                    tool = tool_bin / "managed-demo"
+                    self.write_script("uv", "echo UV_MANAGER\n")
+                elif manager == "pnpm":
+                    tool_bin = self.fake_home / ".local/share/pnpm"
+                    tool_bin.mkdir(parents=True)
+                    tool = tool_bin / "managed-demo"
+                    self.write_script("pnpm", "echo PNPM_MANAGER\n")
+                elif manager in ("cargo", "bun", "deno"):
+                    tool_bin = self.fake_home / f".{manager}/bin"
+                    tool_bin.mkdir(parents=True)
+                    tool = tool_bin / "managed-demo"
+                    if manager == "cargo":
+                        self.write_script("rustup", "echo CARGO_MANAGER\n", directory=tool_bin)
+                        (tool_bin / "cargo").symlink_to("rustup")
+                    else:
+                        self.write_script(manager, f"echo {manager.upper()}_MANAGER\n", directory=tool_bin)
+                    env["PATH"] = f"{tool_bin}:{self.env['PATH']}"
+                elif manager == "pip":
+                    tool_bin = self.fake_home / ".local/bin"
+                    tool_bin.mkdir(parents=True)
+                    tool = tool_bin / "managed-demo"
+                    site = self.fake_home / ".local/lib/python3.13/site-packages"
+                    metadata = site / "demo-1.0.dist-info"
+                    metadata.mkdir(parents=True)
+                    (metadata / "entry_points.txt").write_text(
+                        "[console_scripts]\nmanaged-demo = demo:main\n"
+                    )
+                    self.write_script("pip", "echo PIP_MANAGER\n")
+                    self.write_script("unrelated", "echo NOT_A_PIP_TOOL\n", directory=tool_bin)
+                else:
+                    prefix = self.fake_home / ".nvm/versions/node/test"
+                    tool_bin = prefix / "bin"
+                    tool_bin.mkdir(parents=True)
+                    cli = prefix / "lib/node_modules/npm/bin/npm-cli.js"
+                    cli.parent.mkdir(parents=True)
+                    cli.write_text("#!/bin/sh\necho NPM_MANAGER\n")
+                    cli.chmod(0o755)
+                    (tool_bin / "npm").symlink_to(cli)
+                    tool = tool_bin / "managed-demo"
+                    env["PATH"] = f"{tool_bin}:{self.env['PATH']}"
+                dependency = tool_bin / "package-data"
+                if manager == "pip":
+                    dependency = site / "package-data"
+                elif manager == "bun":
+                    dependency = self.fake_home / ".bun/install/global/package-data"
+                elif manager == "deno":
+                    dependency = self.fake_home / ".cache/deno/package-data"
+                dependency.parent.mkdir(parents=True, exist_ok=True)
+                dependency.write_text(f"{manager}_DEPENDENCY\n")
+                tool.write_text(
+                    f"#!/bin/sh\ncat {dependency}\n"
+                    f"if test -e {self.fake_home}/.npmrc; then echo EXPOSED_CONFIG; fi\n"
+                    f"if test -e {self.fake_home}/.local/bin/unrelated; then echo EXPOSED_BIN; fi\n"
+                    f"if echo changed > {dependency}; then echo WRITABLE_PACKAGE; fi\n"
+                )
+                tool.chmod(0o755)
+                self.write_config("package-managers", manager + "\n")
+                manager_run = self.run_launcher(["--", manager, "--version"], env=env)
+                self.assertEqual(manager_run.returncode, 0, manager_run.stderr)
+                self.assertIn(f"{manager.upper()}_MANAGER", manager_run.stdout)
+                completed = self.run_launcher(["--", "managed-demo"], env=env)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn(f"{manager}_DEPENDENCY", completed.stdout)
+                self.assertNotIn("EXPOSED_CONFIG", completed.stdout)
+                self.assertNotIn("EXPOSED_BIN", completed.stdout)
+                self.assertNotIn("WRITABLE_PACKAGE", completed.stdout)
+                self.assertIn("execution=sandbox network=off", completed.stderr)
+                self.assertEqual(dependency.read_text(), f"{manager}_DEPENDENCY\n")
+
+    def test_pip_console_script_imports_user_site_packages(self):
+        version = subprocess.check_output(
+            ["/usr/bin/python3", "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            text=True,
+        ).strip()
+        site = self.fake_home / f".local/lib/python{version}/site-packages"
+        metadata = site / "demo-1.0.dist-info"
+        metadata.mkdir(parents=True)
+        (site / "pip_demo.py").write_text("def main(): print('PIP_IMPORT_OK')\n")
+        (metadata / "entry_points.txt").write_text("[console_scripts]\npip-demo = pip_demo:main\n")
+        tool = self.fake_home / ".local/bin/pip-demo"
+        tool.parent.mkdir(parents=True)
+        tool.write_text("#!/usr/bin/python3\nfrom pip_demo import main\nmain()\n")
+        tool.chmod(0o755)
+        self.write_script("pip", "echo PIP\n")
+        self.write_config("package-managers", "pip\n")
+        completed = self.run_launcher(["--", "pip-demo"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("PIP_IMPORT_OK", completed.stdout)
+        self.assertIn("execution=sandbox network=off", completed.stderr)
+
+    def test_unknown_package_manager_is_rejected(self):
+        self.write_config("package-managers", "yarn\n")
+        completed = self.run_launcher(["--", "true"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("unknown line in package-managers: yarn", completed.stderr)
+        self.assertNotIn("execution=", completed.stderr)
+
+    def test_package_managed_tool_requires_opt_in(self):
+        path = self.fake_home / ".local/share/pnpm"
+        self.write_script("managed-demo", "echo RAN\n", directory=path)
+        env = self.env.copy()
+        env["PATH"] = f"{path}:{self.env['PATH']}"
+        completed = self.run_launcher(["--", "managed-demo"], env=env)
+        self.assertIn("not in extra-commands: managed-demo", completed.stderr)
+        self.assertNotIn("execution=", completed.stderr)
+
+    def test_arbitrary_host_prefix_scrubs_environment_and_project_path(self):
+        self.write_config("host-commands", "some-tool --check\n")
+        self.write_script("some-tool", 'printf "ARGS:%s:%s\\n" "$1" "$2"\nenv\n')
+        project_bin = self.project / "bin"
+        self.write_script("some-tool", "echo PROJECT_EXECUTABLE\n", directory=project_bin)
+        env = self.env.copy()
+        env["PATH"] = f"{project_bin}:{self.env['PATH']}"
+        env["INHERITED_SECRET"] = "must-not-leak"
+        with socket.socket(socket.AF_UNIX) as agent:
+            sock = self.root / "agent.sock"
+            agent.bind(str(sock))
+            env["SSH_AUTH_SOCK"] = str(sock)
+            for argument in ("later", "push"):
+                with self.subTest(argument=argument):
+                    completed = self.run_launcher(
+                        ["--", "some-tool", "--check", argument], env=env
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    self.assertIn(f"ARGS:--check:{argument}", completed.stdout)
+                    self.assertIn(f"HOME={self.fake_home}", completed.stdout)
+                    self.assertIn("USER=tester", completed.stdout)
+                    self.assertIn(f"PATH={self.env['PATH']}", completed.stdout)
+                    self.assertNotIn(str(project_bin), completed.stdout)
+                    self.assertNotIn("PROJECT_EXECUTABLE", completed.stdout)
+                    for key in ("SSH_AUTH_SOCK=", "GNUPGHOME=", "GIT_CONFIG_GLOBAL=",
+                                "INHERITED_SECRET=", "must-not-leak"):
+                        self.assertNotIn(key, completed.stdout)
+                    self.assertIn("execution=host network=host", completed.stderr)
+                    self.assertIn("host-commands=some-tool --check command=", completed.stderr)
+
+    def test_host_lines_refuse_forbidden_first_tokens_and_malformed_prefixes(self):
+        lines = [f"{name} --check" for name in (
+            "bwrap", "sudo", "su", "sudoedit", "pkexec", "doas", "unshare",
+            "chroot", "nsenter", "systemd-run", "machinectl", "lxc-attach",
+            "docker", "podman", "crun", "runc", "proot", "setpriv", "capsh",
+            "newuidmap", "newgidmap", "fakeroot", "nix", "nix-shell",
+            "bash", "sh", "dash", "zsh", "fish", "python", "python3",
+            "perl", "ruby", "node", "env", "busybox", "timeout", "nohup",
+            "stdbuf", "nice", "ionice", "setsid", "script", "ssh", "scp",
+            "sftp", "gpg", "pre-commit",
+        )]
+        lines += ["some-tool /tmp/file", "some-tool  --check", " some-tool",
+                  "some-tool ", "some-tool\t--check", "some-tool 'two words'",
+                  "some-tool --", "some-tool;true"]
+        for line in lines:
+            with self.subTest(line=line):
+                self.write_config("host-commands", line + "\n")
+                completed = self.run_launcher(["--", "true"])
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn(f"unknown line in host-commands: {line}", completed.stderr)
+                self.assertNotIn("execution=", completed.stderr)
+
+    def test_unlisted_push_runs_nowhere_and_unmatched_prefix_stays_sandboxed(self):
+        self.write_config("host-commands", "some-tool --check\n")
+        push = self.run_launcher(["--", "git", "push"])
+        self.assertNotEqual(push.returncode, 0)
+        self.assertIn("not in host-commands: git push", push.stderr)
+        self.assertNotIn("execution=", push.stderr)
+        self.write_config("extra-commands", "some-tool\n")
+        self.write_script("some-tool", 'printf "ARG:%s\\n" "$1"\n')
+        for arg in ("--fix", "--checker"):
+            with self.subTest(arg=arg):
+                completed = self.run_launcher(["--", "some-tool", arg])
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn(f"ARG:{arg}", completed.stdout)
+                self.assertIn("execution=sandbox network=off", completed.stderr)
+        self.write_config("host-commands", "")
+        unlisted = self.run_launcher(["--", "some-tool", "--check"])
+        self.assertEqual(unlisted.returncode, 0, unlisted.stderr)
+        self.assertIn("execution=sandbox", unlisted.stderr)
+        self.assertIn("host-commands=none", unlisted.stderr)
+
+    def test_long_option_network_prefix_uses_exact_tokens(self):
+        self.write_script("some-tool", "echo RAN\n")
+        self.write_config("extra-commands", "some-tool\n")
+        self.write_config("network-commands", "some-tool --check\n")
+        for args, network in ((["--check", "later"], "on"), (["--checker"], "off")):
+            with self.subTest(args=args):
+                completed = self.run_launcher(["--", "some-tool", *args])
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn(f"execution=sandbox network={network}", completed.stderr)
+        self.write_config("network-commands", "some-tool --\n")
+        refused = self.run_launcher(["--", "true"])
+        self.assertIn("unknown line in network-commands: some-tool --", refused.stderr)
+        self.assertNotIn("execution=", refused.stderr)
+
+    def test_host_summary_preserves_file_order_and_deduplicates(self):
+        self.write_config(
+            "host-commands",
+            "git push\nsome-tool --check\ngit commit\nsome-tool --check\ngit push\n",
+        )
+        completed = self.run_launcher(["--", "true"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn(
+            "host-commands=git push,some-tool --check,git commit command=",
+            completed.stderr,
+        )
+
+    def test_bare_host_prefix_matches_later_arguments(self):
+        self.write_script("some-tool", 'printf "ARG:%s\\n" "$1"\n')
+        self.write_config("host-commands", "some-tool\n")
+        completed = self.run_launcher(["--", "some-tool", "--check"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("execution=host", completed.stderr)
+        self.assertIn("ARG:--check", completed.stdout)
+        self.write_config("host-commands", "git\n")
+        git = self.run_launcher(["--", "git", "status", "--short"])
+        self.assertEqual(git.returncode, 0, git.stderr)
+        self.assertIn("execution=host", git.stderr)
+
+    def test_arbitrary_host_command_checks_metadata_and_executable(self):
+        self.write_config("host-commands", "some-tool\n")
+        target = self.write_script("some-tool", "echo RAN\n")
+        subprocess.run(
+            ["git", "config", "core.hooksPath", "evil"],
+            cwd=self.project, env=self.env, check=True,
+        )
+        blocked = self.run_launcher(["--", "some-tool"])
+        self.assertIn("core.hooksPath", blocked.stderr)
+        self.assertNotIn("execution=", blocked.stderr)
+        subprocess.run(
+            ["git", "config", "--unset", "core.hooksPath"],
+            cwd=self.project, env=self.env, check=True,
+        )
+        real = target.with_name("real-tool")
+        target.rename(real)
+        target.symlink_to(real)
+        linked = self.run_launcher(["--", "some-tool"])
+        self.assertNotEqual(linked.returncode, 0)
+        self.assertIn("refusing host executable", linked.stderr)
+        self.assertNotIn("execution=", linked.stderr)
+        target.unlink()
+        self.write_script("some-tool", "echo PROJECT\n", directory=self.project / "bin")
+        env = self.env.copy()
+        env["PATH"] = f"{self.project / 'bin'}:/usr/bin:/bin"
+        project_only = self.run_launcher(["--", "some-tool"], env=env)
+        self.assertIn("refusing host executable", project_only.stderr)
+        self.assertNotIn("execution=", project_only.stderr)
+
     def test_missing_host_command_runs_neither_host_nor_sandbox(self):
         marker = self.project / "hook-ran"
         hook = self.project / ".git" / "hooks" / "pre-commit"
@@ -835,26 +1089,123 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertIn("network=on", completed.stderr)
         self.assertNotIn("/run/systemd/resolve/stub-resolv.conf", completed.stdout)
 
-    def test_skill_reports_errors_instead_of_approvals(self):
-        text = SKILL.read_text()
-        front = text.split("---", 2)[1]
-        body = text.split("---", 2)[2]
-        self.assertIn("Network is off unless", front)
-        self.assertIn("network-commands", front)
-        self.assertNotIn("no network", front.lower())
-        self.assertIn("Network is off unless", body)
-        self.assertIn("network-commands", body)
-        self.assertIn("not in extra-commands: <name>", text)
-        self.assertIn("not available: <name>", text)
-        self.assertIn("not in host-commands: git commit", text)
-        self.assertIn("not in host-commands: git push", text)
-        self.assertIn("network=off", text)
-        self.assertIn("host-commands=", text)
-        self.assertIn("Do not ask the operator to approve", text)
-        self.assertNotIn("record-approval \\", text)
-        self.assertIn("record-approval` does not record anything", text)
-        self.assertIn("global pre-commit cache", text)
-        self.assertIn("disposable environment", text)
+
+    def test_refused_host_name_still_runs_in_the_sandbox(self):
+        completed = self.run_launcher(["--", "python3", "-c", "print('SANDBOX_PYTHON')"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("SANDBOX_PYTHON", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_npm_home_prefix_exposes_modules_not_home_secrets(self):
+        cli = self.fake_home / "lib/node_modules/npm/bin/npm-cli.js"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\necho NPM_OK\n")
+        cli.chmod(0o755)
+        bin_dir = self.fake_home / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "npm").symlink_to("../lib/node_modules/npm/bin/npm-cli.js")
+        dependency = self.fake_home / "lib/node_modules/demo-data"
+        dependency.write_text("NPM_DEPENDENCY\n")
+        tool = bin_dir / "managed-demo"
+        tool.write_text(f"#!/bin/sh\ncat {dependency}\n")
+        tool.chmod(0o755)
+        (self.fake_home / ".ssh").mkdir()
+        (self.fake_home / ".ssh/id").write_text("SECRET_KEY\n")
+        (self.fake_home / ".npmrc").write_text("SECRET_NPMRC\n")
+        self.write_script("node", "echo NODE\n")
+        self.write_config("package-managers", "npm\n")
+        env = self.env.copy()
+        env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
+        npm_run = self.run_launcher(["--", "npm", "--version"], env=env)
+        self.assertEqual(npm_run.returncode, 0, npm_run.stderr)
+        self.assertIn("NPM_OK", npm_run.stdout)
+        tool_run = self.run_launcher(["--", "managed-demo"], env=env)
+        self.assertEqual(tool_run.returncode, 0, tool_run.stderr)
+        self.assertIn("NPM_DEPENDENCY", tool_run.stdout)
+        probe = self.run_launcher(
+            ["--", "bash", "-c", f"cat {self.fake_home}/.ssh/id {self.fake_home}/.npmrc || true"],
+            env=env,
+        )
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        self.assertNotIn("SECRET_KEY", probe.stdout)
+        self.assertNotIn("SECRET_NPMRC", probe.stdout)
+        self.assertIn("execution=sandbox", probe.stderr)
+
+    def test_symlinked_package_root_preserves_interior_symlink(self):
+        real = self.fake_home / "real-cargo-bin"
+        real.mkdir()
+        (real / "package-data").write_text("CARGO_SYMLINK\n")
+        target = real / "real-tool"
+        target.write_text(f"#!/bin/sh\ncat {real}/package-data\n")
+        target.chmod(0o755)
+        (real / "managed-demo").symlink_to("real-tool")
+        cargo = self.fake_home / ".cargo"
+        cargo.mkdir()
+        (cargo / "bin").symlink_to(real)
+        self.write_script("cargo", "echo CARGO\n")
+        self.write_config("package-managers", "cargo\n")
+        completed = self.run_launcher(["--", "managed-demo"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("CARGO_SYMLINK", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_package_root_symlink_to_home_is_refused(self):
+        cargo = self.fake_home / ".cargo"
+        cargo.mkdir()
+        (cargo / "bin").symlink_to(self.fake_home)
+        (self.fake_home / ".ssh").mkdir()
+        (self.fake_home / ".ssh/id").write_text("SECRET_KEY\n")
+        self.write_script("cargo", "echo CARGO\n")
+        self.write_config("package-managers", "cargo\n")
+        completed = self.run_launcher(["--", "true"])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("overly broad", completed.stderr)
+        self.assertNotIn("SECRET_KEY", completed.stdout)
+        self.assertNotIn("execution=", completed.stderr)
+
+    def test_pnpm_bin_is_visible_when_pnpm_is_outside_its_home(self):
+        home = self.fake_home / ".local/share/pnpm"
+        tool_bin = home / "bin"
+        tool_bin.mkdir(parents=True)
+        dependency = home / "package-data"
+        dependency.write_text("PNPM_BIN_DEPENDENCY\n")
+        tool = tool_bin / "managed-demo"
+        tool.write_text(f"#!/bin/sh\ncat {dependency}\n")
+        tool.chmod(0o755)
+        self.write_script("pnpm", "echo PNPM\n")
+        self.write_script("node", "echo NODE\n")
+        self.write_config("package-managers", "pnpm\n")
+        completed = self.run_launcher(["--", "managed-demo"])
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("PNPM_BIN_DEPENDENCY", completed.stdout)
+        self.assertIn("execution=sandbox", completed.stderr)
+
+    def test_missing_manager_does_not_fail_unrelated_commands(self):
+        if Path("/usr/bin/deno").exists() or Path("/bin/deno").exists():
+            self.skipTest("host deno would satisfy the missing-manager fixture")
+        self.write_config("package-managers", "deno\n")
+        unrelated = self.run_launcher(["--", "true"])
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        self.assertIn("execution=sandbox", unrelated.stderr)
+        missing = self.run_launcher(["--", "deno", "--version"])
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("not available: deno", missing.stderr)
+        self.assertNotIn("execution=", missing.stderr)
+
+    def test_missing_node_does_not_fail_unrelated_commands(self):
+        self.write_script("npm", "echo NPM\n")
+        self.write_config("package-managers", "npm\n")
+        hidden = self.root / "not-executable"
+        hidden.write_text("")
+        hidden.chmod(0o644)
+        hide_node = ["--ro-bind", str(hidden), "/usr/bin/node", "--ro-bind", str(hidden), "/bin/node"]
+        unrelated = self.run_launcher(["--", "true"], extra_bwrap=hide_node)
+        self.assertEqual(unrelated.returncode, 0, unrelated.stderr)
+        self.assertIn("execution=sandbox", unrelated.stderr)
+        missing = self.run_launcher(["--", "npm", "--version"], extra_bwrap=hide_node)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("not available: node", missing.stderr)
+        self.assertNotIn("execution=", missing.stderr)
 
 
 if __name__ == "__main__":

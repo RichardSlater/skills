@@ -1,4 +1,10 @@
-## ADDED Requirements
+# continuous-fuzzing Specification
+
+## Purpose
+
+Define continuous fuzzing coverage, scheduling, and maintenance requirements for code that parses untrusted input.
+
+## Requirements
 
 ### Requirement: ClusterFuzzLite is integrated for Python fuzzing
 The repository SHALL integrate ClusterFuzzLite to provide continuous fuzzing of critical input-parsing functions. Fuzz targets SHALL be written for functions that process untrusted external input.
