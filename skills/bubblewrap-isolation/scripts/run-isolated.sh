@@ -7,7 +7,7 @@ set -euo pipefail
 
 usage() {
   printf 'Usage: %s -- command [argument ...]\n' "${0##*/}" >&2
-  printf 'Operator config: ~/.config/bubblewrap-isolation/{extra-commands,network-commands,host-commands}\n' >&2
+  printf 'Operator config: ~/.config/bubblewrap-isolation/{extra-commands,network-commands,host-commands,package-managers}\n' >&2
   exit 64
 }
 
@@ -273,7 +273,7 @@ valid_program_name() {
 }
 
 valid_arg_token() {
-  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+@=-]*$ || "$1" =~ ^-[A-Za-z0-9][A-Za-z0-9._+@=-]*$ ]]
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+@=-]*$ || "$1" =~ ^--?[A-Za-z0-9][A-Za-z0-9._+@=-]*$ ]]
 }
 
 validate_network_line() {
@@ -302,6 +302,7 @@ load_operator_config() {
   EXTRA_NAMES=()
   NETWORK_LINES=()
   HOST_LINES=()
+  PACKAGE_MANAGERS=()
   local cursor="$REAL_HOME" part
   for part in .config bubblewrap-isolation; do
     cursor+="/$part"
@@ -320,7 +321,7 @@ load_operator_config() {
     name="${entry##*/}"
     reject_newline "$name" "config entry"
     case "$name" in
-      extra-commands|network-commands|host-commands) ;;
+      extra-commands|network-commands|host-commands|package-managers) ;;
       *) die "unknown config entry: $name" ;;
     esac
     [[ ! -L "$entry" ]] || die "refusing symlink in config: $name"
@@ -329,7 +330,7 @@ load_operator_config() {
   done
   shopt -u nullglob dotglob
   local file line
-  for file in extra-commands network-commands host-commands; do
+  for file in extra-commands network-commands host-commands package-managers; do
     [[ -f "$CONFIG_DIR/$file" && ! -L "$CONFIG_DIR/$file" ]] || continue
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$line" != *$'\r'* ]] || die "unknown line in $file: $line"
@@ -337,6 +338,12 @@ load_operator_config() {
         continue
       fi
       case "$file" in
+        package-managers)
+          case "$line" in
+            uv|npm|pnpm|cargo|bun|deno|pip) PACKAGE_MANAGERS+=("$line") ;;
+            *) die "unknown line in package-managers: $line" ;;
+          esac
+          ;;
         extra-commands)
           valid_program_name "$line" || die "unknown line in extra-commands: $line"
           EXTRA_NAMES+=("$line")
@@ -346,7 +353,12 @@ load_operator_config() {
           NETWORK_LINES+=("$line")
           ;;
         host-commands)
-          [[ "$line" == "git commit" || "$line" == "git push" ]] || die "unknown line in host-commands: $line"
+          validate_network_line "$line" || die "unknown line in host-commands: $line"
+          case "${line%% *}" in
+            bwrap|sudo|su|unshare|chroot|pre-commit)
+              die "unknown line in host-commands: $line"
+              ;;
+          esac
           HOST_LINES+=("$line")
           ;;
       esac
@@ -400,13 +412,12 @@ is_git_host_command() {
 }
 
 host_commands_summary() {
-  local out="" line existing
-  for line in "git commit" "git push"; do
-    for existing in "${HOST_LINES[@]+"${HOST_LINES[@]}"}"; do
-      if [[ "$existing" == "$line" ]]; then
-        out+="${out:+,}$line"
-      fi
-    done
+  local out="" line
+  local -A seen=()
+  for line in "${HOST_LINES[@]+"${HOST_LINES[@]}"}"; do
+    [[ -z "${seen[$line]+x}" ]] || continue
+    seen["$line"]=1
+    out+="${out:+,}$line"
   done
   printf '%s' "${out:-none}"
 }
@@ -449,6 +460,9 @@ sandbox_path_dirs() {
     if [[ -d "$dir" ]]; then
       SANDBOX_PATH+="${SANDBOX_PATH:+:}$dir"
     fi
+  done
+  for dir in "${PACKAGE_PATH_DIRS[@]+"${PACKAGE_PATH_DIRS[@]}"}"; do
+    SANDBOX_PATH="$dir${SANDBOX_PATH:+:$SANDBOX_PATH}"
   done
   for dir in "${EXTRA_PATH_DIRS[@]+"${EXTRA_PATH_DIRS[@]}"}"; do
     SANDBOX_PATH+=":$dir"
@@ -616,12 +630,210 @@ closure_ok() {
   return 1
 }
 
+# Package-manager grants expose prepared installations, not the host home or
+# package-manager configuration. Keep discovery static: never execute a manager
+# on the host to ask where it stores packages.
+package_root() {
+  local path="$1" existing
+  [[ -e "$path" ]] || return 0
+  [[ -d "$path" ]] || die "package-manager path must be a directory: $path"
+  path_has_symlink_component "$path" && die "refusing symlink in package-manager path: $path"
+  case "$path" in
+    "$PROJECT"|"$PROJECT"/*) die "refusing package-manager path inside project: $path" ;;
+  esac
+  for existing in "${PACKAGE_ROOTS[@]+"${PACKAGE_ROOTS[@]}"}"; do
+    [[ "$existing" == "$path" ]] && return 0
+  done
+  PACKAGE_ROOTS+=("$path")
+  PACKAGE_BINDS+=(--ro-bind "$path" "$path")
+}
+
+package_host_program() {
+  local name="$1" entry physical resolved
+  local -a entries=()
+  IFS=: read -r -a entries <<<"$HOST_PATH"
+  for entry in "${entries[@]}"; do
+    [[ "$entry" == /* && -d "$entry" ]] || continue
+    physical="$(canonical_dir "$entry")"
+    case "$physical" in "$PROJECT"|"$PROJECT"/*) continue ;; esac
+    [[ -x "$entry/$name" && ! -d "$entry/$name" ]] || continue
+    resolved="$(readlink -f -- "$entry/$name")" || continue
+    case "$resolved" in "$PROJECT"|"$PROJECT"/*) continue ;; esac
+    printf '%s\n' "$entry/$name"
+    return 0
+  done
+  return 1
+}
+
+package_executable() {
+  local path="$1" resolved root
+  resolved="$(readlink -f -- "$path")"
+  [[ -f "$resolved" && -x "$resolved" ]] || die "not available: ${path##*/}"
+  in_forbidden_bind_dir "$resolved" && die "refusing credential path for package manager: $resolved"
+  PACKAGE_FILES+=("$path")
+  PACKAGE_PATH_DIRS+=("${path%/*}")
+  in_base_mounts "$path" && return 0
+  for root in "${PACKAGE_ROOTS[@]+"${PACKAGE_ROOTS[@]}"}"; do
+    case "$path:$resolved" in "$root"/*:"$root"/*) return 0 ;; esac
+  done
+  # A standalone manager/runtime needs only one file, not its bin directory.
+  # Already-mounted trees retain their own symlinks (npm's CLI, for example).
+  PACKAGE_BINDS+=(--ro-bind "$resolved" "$path")
+}
+
+package_pip_tools() {
+  local site metadata name path
+  shopt -s nullglob
+  for site in "$REAL_HOME"/.local/lib/python*/site-packages; do
+    package_root "$site"
+    # Read entry-point names as data, without importing any installed package.
+    for metadata in "$site"/*.dist-info/entry_points.txt; do
+      while IFS= read -r name; do
+        valid_program_name "$name" || continue
+        path="$REAL_HOME/.local/bin/$name"
+        [[ -f "$path" && -x "$path" ]] || continue
+        package_executable "$path"
+      done < <(awk -F= '
+        /^\[/ { scripts = ($0 ~ /^\[(console_scripts|gui_scripts)\][[:space:]]*$/); next }
+        scripts && NF >= 2 { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1 }
+      ' "$metadata")
+    done
+  done
+  shopt -u nullglob
+}
+
+prepare_package_managers() {
+  PACKAGE_ROOTS=()
+  PACKAGE_FILES=()
+  PACKAGE_BINDS=()
+  PACKAGE_PATH_DIRS=()
+  PACKAGE_ENV=()
+  local manager executable resolved prefix path runtime
+  for manager in "${PACKAGE_MANAGERS[@]+"${PACKAGE_MANAGERS[@]}"}"; do
+    executable="$(package_host_program "$manager")" || die "not available: $manager"
+    case "$manager" in
+      cargo)
+        for path in .cargo/bin .cargo/registry .cargo/git .rustup/toolchains; do
+          package_root "$REAL_HOME/$path"
+        done
+        path="$REAL_HOME/.rustup/settings.toml"
+        if [[ -e "$path" ]]; then
+          path_has_symlink_component "$path" && die "refusing symlink in package-manager path: $path"
+          [[ -f "$path" ]] || die "package-manager settings must be a regular file: $path"
+          PACKAGE_BINDS+=(--ro-bind "$path" "$path")
+        fi
+        PACKAGE_PATH_DIRS+=("$REAL_HOME/.cargo/bin")
+        PACKAGE_ENV+=(--setenv CARGO_HOME "$REAL_HOME/.cargo" --setenv RUSTUP_HOME "$REAL_HOME/.rustup")
+        ;;
+      bun)
+        for path in .bun/bin .bun/install/global .bun/install/cache; do
+          package_root "$REAL_HOME/$path"
+        done
+        PACKAGE_PATH_DIRS+=("$REAL_HOME/.bun/bin")
+        PACKAGE_ENV+=(--setenv BUN_INSTALL "$REAL_HOME/.bun"
+          --setenv BUN_INSTALL_CACHE_DIR "$REAL_HOME/.bun/install/cache")
+        ;;
+      deno)
+        package_root "$REAL_HOME/.deno/bin"
+        package_root "$REAL_HOME/.cache/deno"
+        PACKAGE_PATH_DIRS+=("$REAL_HOME/.deno/bin")
+        PACKAGE_ENV+=(--setenv DENO_INSTALL_ROOT "$REAL_HOME/.deno"
+          --setenv DENO_DIR "$REAL_HOME/.cache/deno")
+        ;;
+      pip)
+        package_root "$REAL_HOME/.cache/pip"
+        package_pip_tools
+        PACKAGE_ENV+=(--setenv PYTHONUSERBASE "$REAL_HOME/.local"
+          --setenv PIP_CACHE_DIR "$REAL_HOME/.cache/pip")
+        # User-site console scripts use the matching host Python runtime.
+        runtime="$(package_host_program python3)" || die "not available: python3"
+        package_executable "$runtime"
+        ;;
+      uv)
+        package_root "$REAL_HOME/.local/share/uv/tools"
+        package_root "$REAL_HOME/.local/share/uv/python"
+        package_root "$REAL_HOME/.cache/uv"
+        PACKAGE_ENV+=(--setenv UV_TOOL_DIR "$REAL_HOME/.local/share/uv/tools"
+          --setenv UV_PYTHON_INSTALL_DIR "$REAL_HOME/.local/share/uv/python"
+          --setenv UV_CACHE_DIR "$REAL_HOME/.cache/uv")
+        shopt -s nullglob
+        for path in "$REAL_HOME"/.local/share/uv/tools/*/bin; do
+          PACKAGE_PATH_DIRS+=("$path")
+        done
+        shopt -u nullglob
+        ;;
+      pnpm)
+        package_root "$REAL_HOME/.local/share/pnpm"
+        package_root "$REAL_HOME/.cache/pnpm"
+        PACKAGE_PATH_DIRS+=("$REAL_HOME/.local/share/pnpm")
+        PACKAGE_ENV+=(--setenv PNPM_HOME "$REAL_HOME/.local/share/pnpm")
+        ;;
+      npm)
+        # npm's resolved CLI identifies the active prefix, including NVM.
+        resolved="$(readlink -f -- "$executable")"
+        case "$resolved" in
+          */lib/node_modules/npm/bin/npm-cli.js)
+            prefix="${resolved%/lib/node_modules/npm/bin/npm-cli.js}"
+            if ! in_base_mounts "$prefix"; then
+              package_root "$prefix"
+              PACKAGE_PATH_DIRS+=("$prefix/bin")
+            fi
+            ;;
+        esac
+        package_root "$REAL_HOME/.npm-global"
+        package_root "$REAL_HOME/.npm/_cacache"
+        [[ ! -d "$REAL_HOME/.npm-global/bin" ]] || PACKAGE_PATH_DIRS+=("$REAL_HOME/.npm-global/bin")
+        ;;
+    esac
+    package_executable "$executable"
+    if [[ "$manager" == npm || "$manager" == pnpm ]]; then
+      runtime="$(package_host_program node)" || die "not available: node"
+      package_executable "$runtime"
+    fi
+  done
+}
+
+package_command_visible() {
+  local command="$1" path resolved root
+  local -a candidates=()
+  if [[ "$command" == */* ]]; then
+    if [[ "$command" == /* ]]; then candidates+=("$command"); else candidates+=("$WORKDIR/$command"); fi
+  else
+    for path in "${PACKAGE_PATH_DIRS[@]+"${PACKAGE_PATH_DIRS[@]}"}"; do
+      candidates+=("$path/$command")
+    done
+  fi
+  for path in "${candidates[@]+"${candidates[@]}"}"; do
+    [[ -x "$path" && ! -d "$path" ]] || continue
+    for root in "${PACKAGE_FILES[@]+"${PACKAGE_FILES[@]}"}"; do
+      [[ "$path" == "$root" ]] && return 0
+    done
+    resolved="$(readlink -f -- "$path")" || continue
+    for root in "${PACKAGE_ROOTS[@]+"${PACKAGE_ROOTS[@]}"}"; do
+      case "$path" in
+        "$root"/*)
+          # A tool's symlink target must also be visible in the sandbox.
+          in_base_mounts "$resolved" && return 0
+          local target
+          for target in "${PACKAGE_ROOTS[@]}"; do
+            case "$resolved" in "$target"/*) return 0 ;; esac
+          done
+          ;;
+      esac
+    done
+  done
+  return 1
+}
+
 classify_invocation() {
   local cmd="$1" path physical
   INVOKE_NAME="${cmd##*/}"
   INVOKE_NEEDS_EXTRA=false
   INVOKE_BOUND=""
   INVOKE_PATH=""
+  if package_command_visible "$cmd"; then
+    return 0
+  fi
   if [[ "$cmd" == */* ]]; then
     if [[ "$cmd" == /* ]]; then
       path="$cmd"
@@ -763,6 +975,7 @@ resolve_host_executable() {
       "$PROJECT"|"$PROJECT"/*) continue ;;
     esac
     [[ -x "$entry/$name" && ! -d "$entry/$name" ]] || continue
+    path_has_symlink_component "$entry/$name" && return 1
     resolved="$(readlink -f -- "$entry/$name")"
     case "$resolved" in
       "$PROJECT"|"$PROJECT"/*) continue ;;
@@ -897,6 +1110,8 @@ run_sandboxed() {
   args+=("${MASKS[@]+"${MASKS[@]}"}")
   args+=("${NETWORK[@]+"${NETWORK[@]}"}")
   args+=("${EXTRA_BINDS[@]+"${EXTRA_BINDS[@]}"}")
+  args+=("${PACKAGE_BINDS[@]+"${PACKAGE_BINDS[@]}"}")
+  args+=("${PACKAGE_ENV[@]+"${PACKAGE_ENV[@]}"}")
   local -a cmd=("$@")
   if [[ -n "${INVOKE_BOUND:-}" && "$INVOKE_NEEDS_EXTRA" == true ]]; then
     cmd[0]="$INVOKE_BOUND"
@@ -938,19 +1153,17 @@ git_clean() {
 }
 
 prepare_host_environment() {
-  local subcommand="$1"
   HOST_CLEAN_PATH="$(scrub_host_path)"
   [[ -n "$HOST_CLEAN_PATH" ]] || die "refusing host execution with empty PATH"
   HOST_CLEAN_SSH=""
-  if [[ "$subcommand" == push ]] && ssh_auth_sock_ok "${SSH_AUTH_SOCK:-}"; then
+  if [[ "$1" == git && "${2:-}" == push ]] && ssh_auth_sock_ok "${SSH_AUTH_SOCK:-}"; then
     HOST_CLEAN_SSH="$SSH_AUTH_SOCK"
   fi
 }
 
 run_host() {
   local fingerprint resolved
-  [[ "$1" == git && ( "$2" == commit || "$2" == push ) ]] || die "host execution is limited to git commit and git push"
-  prepare_host_environment "$2"
+  prepare_host_environment "$@"
   fingerprint="$(hooks_fingerprint)"
   resolved="$(resolve_host_executable "$1")" || die "refusing host executable resolved inside the project or missing from PATH: $1"
   [[ "$fingerprint" == "$(hooks_fingerprint)" ]] || die "hook or Git config fingerprint changed; refusing host execution"
@@ -984,12 +1197,13 @@ run_command() {
   refuse_project_contains_home
   load_operator_config
   prepare_project_masks
+  if host_line_matches "$@"; then
+    run_host "$@"
+  fi
   if is_git_host_command "$@"; then
-    if host_line_matches "$@"; then
-      run_host "$@"
-    fi
     die "not in host-commands: git $2"
   fi
+  prepare_package_managers
   classify_invocation "$1"
   SHARE_NET=false
   if network_line_matches "$@"; then
@@ -1015,7 +1229,7 @@ main() {
   case "${1:-}" in
     record-approval)
       resolve_real_home
-      die "record-approval does not grant authority; edit $REAL_HOME/.config/bubblewrap-isolation (extra-commands, network-commands, host-commands)"
+      die "record-approval does not grant authority; edit $REAL_HOME/.config/bubblewrap-isolation (extra-commands, network-commands, host-commands, package-managers)"
       ;;
     --)
       shift
