@@ -1,4 +1,10 @@
-## ADDED Requirements
+# release-provenance Specification
+
+## Purpose
+
+Define release artifact signing, build provenance attestations, and legacy unsigned artifact cleanup requirements.
+
+## Requirements
 
 ### Requirement: Build provenance attestations are generated for release artifacts
 The release pipeline SHALL generate cryptographic build provenance attestations using `actions/attest-build-provenance@v3.0.0` that link each release asset to its exact source commit, build environment, and artifact digest. Attestations SHALL be linked in a way that is detectable by OpenSSF Scorecard.
@@ -48,8 +54,6 @@ Every release SHALL produce GPG-signed artifacts AND build provenance attestatio
 
 - **WHEN** an attestation is created
 - **THEN** the attestation subject is the content digest (SHA-256) of the release asset, not a repository ref
-
-## MODIFIED Requirements
 
 ### Requirement: Automated release process (from automated-conventional-releases)
 The automated release process SHALL be updated to ensure that the `actions/attest-build-provenance` action is configured to produce attestations that are detectable by OpenSSF Scorecard.

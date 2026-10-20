@@ -1,4 +1,10 @@
-## ADDED Requirements
+# required-codeql Specification
+
+## Purpose
+
+Define required CodeQL checks and analysis coverage for pull requests, main-branch changes, and scheduled runs.
+
+## Requirements
 
 ### Requirement: CodeQL analysis is a required status check for merging
 The branch protection ruleset for `main` SHALL require successful CodeQL analysis before allowing merges. Both the `actions` and `python` language analyses SHALL be required.
