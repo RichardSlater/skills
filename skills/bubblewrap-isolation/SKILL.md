@@ -20,7 +20,7 @@ The sandbox is a defense-in-depth boundary, not a substitute for a VM or contain
 4. Do not use this skill for interactive authentication, `sudo`, SSH, long-running services, privileged operations, or commands whose purpose requires host access beyond the host-command list below. Use the relevant operator-controlled workflow instead.
 5. Keep permission changes explicit. For a missing extra command, network-related offline failure, or intended host command, follow **Recommended operator-config fixes** below. Sandbox failures are never approvals; only explicit operator acceptance of the specific recommendation authorizes a config write.
 6. Inspect any intended write and run only the requested command. Isolation does **not** protect project files from a command that has write access to the project.
-7. Run commands inside the sandbox unless their argv matches an operator-chosen `host-commands` prefix. `git commit` and `git push` run nowhere without a matching host line.
+7. Run commands inside the sandbox unless their argv matches an operator-chosen `host-commands` prefix.
 8. The host-command list is the only host-execution grant. It never authorizes disabling signing or quality gates. Host commands are not isolated: they can access host files, credentials, and network; the scrubbed environment is not a sandbox.
 
 ## Preflight
@@ -33,7 +33,7 @@ RUN_ISOLATED="$SKILL_DIR/scripts/run-isolated.sh"
 test -x "$RUN_ISOLATED"
 ```
 
-If Bubblewrap, user namespaces, or Git project discovery fails, stop and report the exact prerequisite failure. Do not fall back to running the target command unsandboxed.
+If Bubblewrap, user namespaces, or Git project discovery fails, stop and report the exact prerequisite failure. Do not fall back to running the target command unsandboxed. Where the failure is as a result of a missing setting in the `.config/bubblewrap-isolation/` operator config, follow **Recommended operator-config fixes** below.
 
 ## Standard invocation
 
