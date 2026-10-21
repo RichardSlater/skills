@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Fail-closed Bubblewrap launcher for short-lived agent commands.
 # Extra programs, per-command network, and host execution come only from the
-# invoking user's real ~/.config/bubblewrap-isolation/. Repository files,
+# invoking user's real ~/.config/bubblewrap-isolation/config.yml. Repository
 # mount flags, and network flags do not grant authority.
 set -euo pipefail
 
 usage() {
   printf 'Usage: %s -- command [argument ...]\n' "${0##*/}" >&2
-  printf 'Operator config: ~/.config/bubblewrap-isolation/{extra-commands,network-commands,host-commands,package-managers}\n' >&2
+  printf 'Operator config: ~/.config/bubblewrap-isolation/config.yml\n' >&2
   exit 64
 }
 
@@ -321,7 +321,7 @@ load_operator_config() {
     name="${entry##*/}"
     reject_newline "$name" "config entry"
     case "$name" in
-      extra-commands|network-commands|host-commands|package-managers) ;;
+      config.yml) ;;
       *) die "unknown config entry: $name" ;;
     esac
     [[ ! -L "$entry" ]] || die "refusing symlink in config: $name"
@@ -329,41 +329,63 @@ load_operator_config() {
     assert_private_config "$entry"
   done
   shopt -u nullglob dotglob
-  local file line
-  for file in extra-commands network-commands host-commands package-managers; do
-    [[ -f "$CONFIG_DIR/$file" && ! -L "$CONFIG_DIR/$file" ]] || continue
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ "$line" != *$'\r'* ]] || die "unknown line in $file: $line"
-      if is_blank_line "$line"; then
-        continue
-      fi
-      case "$file" in
-        package-managers)
-          case "$line" in
-            uv|npm|pnpm|cargo|bun|deno|pip) PACKAGE_MANAGERS+=("$line") ;;
-            *) die "unknown line in package-managers: $line" ;;
-          esac
-          ;;
-        extra-commands)
-          valid_program_name "$line" || die "unknown line in extra-commands: $line"
-          EXTRA_NAMES+=("$line")
-          ;;
-        network-commands)
-          validate_network_line "$line" || die "unknown line in network-commands: $line"
-          NETWORK_LINES+=("$line")
-          ;;
-        host-commands)
-          validate_network_line "$line" || die "unknown line in host-commands: $line"
-          # Refused as host grants, not as sandbox commands. pre-commit stays
-          # here so the quality gate cannot escape onto the host cache.
-          if refused_host_command "${line%% *}"; then
-            die "unknown line in host-commands: $line"
-          fi
-          HOST_LINES+=("$line")
-          ;;
-      esac
-    done <"$CONFIG_DIR/$file"
-  done
+  [[ -f "$CONFIG_DIR/config.yml" && ! -L "$CONFIG_DIR/config.yml" ]] || return 0
+  apply_config_grants "$CONFIG_DIR/config.yml"
+}
+
+apply_config_grants() {
+  local config_path="$1" script_dir helper output status=0 scope kind value
+  [[ -x /usr/bin/python3 ]] || die "python3 is required at /usr/bin/python3" 69
+  script_dir="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
+  helper="$script_dir/load-config.py"
+  [[ -f "$helper" && ! -L "$helper" ]] || die "config parser is unavailable"
+  output="$(/usr/bin/python3 "$helper" "$config_path" "$PROJECT")" || status=$?
+  if (( status != 0 )); then
+    exit "$status"
+  fi
+  while IFS=$'\t' read -r scope kind value || [[ -n "${scope:-}" ]]; do
+    [[ -n "${scope:-}" ]] || continue
+    case "$scope" in
+      use|skip) ;;
+      *) die "invalid config parser output" ;;
+    esac
+    case "$kind" in
+      extra|network|host|package) ;;
+      *) die "invalid config parser output" ;;
+    esac
+    case "$kind" in
+      package)
+        case "$value" in
+          uv|npm|pnpm|cargo|bun|deno|pip) ;;
+          *) die "unknown line in package-managers: $value" ;;
+        esac
+        if [[ "$scope" == use ]]; then
+          PACKAGE_MANAGERS+=("$value")
+        fi
+        ;;
+      extra)
+        valid_program_name "$value" || die "unknown line in extra-commands: $value"
+        if [[ "$scope" == use ]]; then
+          EXTRA_NAMES+=("$value")
+        fi
+        ;;
+      network)
+        validate_network_line "$value" || die "unknown line in network-commands: $value"
+        if [[ "$scope" == use ]]; then
+          NETWORK_LINES+=("$value")
+        fi
+        ;;
+      host)
+        validate_network_line "$value" || die "unknown line in host-commands: $value"
+        if refused_host_command "${value%% *}"; then
+          die "unknown line in host-commands: $value"
+        fi
+        if [[ "$scope" == use ]]; then
+          HOST_LINES+=("$value")
+        fi
+        ;;
+    esac
+  done <<<"$output"
 }
 
 name_listed() {
@@ -412,16 +434,15 @@ is_git_host_command() {
 }
 
 # Host grants run with the real home. Refuse names that would make that grant
-# an interpreter, a privilege or namespace transition, or the sandboxed
-# pre-commit gate. These names still use the normal sandbox path.
+# an interpreter or a privilege or namespace transition.
+# These names still use the normal sandbox path.
 refused_host_command() {
   case "$1" in
     bwrap|sudo|su|sudoedit|pkexec|doas|unshare|chroot|nsenter|systemd-run|\
     machinectl|lxc-attach|docker|podman|crun|runc|proot|setpriv|capsh|\
     newuidmap|newgidmap|fakeroot|nix|nix-shell|\
     bash|sh|dash|zsh|fish|python|python3|perl|ruby|node|env|busybox|\
-    timeout|nohup|stdbuf|nice|ionice|setsid|script|ssh|scp|sftp|gpg|\
-    pre-commit)
+    timeout|nohup|stdbuf|nice|ionice|setsid|script|ssh|scp|sftp|gpg)
       return 0
       ;;
   esac
@@ -1350,7 +1371,7 @@ main() {
   case "${1:-}" in
     record-approval)
       resolve_real_home
-      die "record-approval does not grant authority; edit $REAL_HOME/.config/bubblewrap-isolation (extra-commands, network-commands, host-commands, package-managers)"
+      die "record-approval does not grant authority; edit $REAL_HOME/.config/bubblewrap-isolation/config.yml"
       ;;
     --)
       shift

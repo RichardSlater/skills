@@ -9,6 +9,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "skills/bubblewrap-isolation/scripts/run-isolated.sh"
@@ -138,9 +140,17 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.decoy_home = self.root / "decoy-home"
         decoy_config = self.decoy_home / ".config" / "bubblewrap-isolation"
         decoy_config.mkdir(parents=True)
-        (decoy_config / "extra-commands").write_text("evil\n")
-        (decoy_config / "network-commands").write_text("bash\n")
-        (decoy_config / "host-commands").write_text("git commit\ngit push\n")
+        (decoy_config / "config.yml").write_text(
+            yaml.safe_dump(
+                {
+                    "global": {
+                        "extra": ["evil"],
+                        "network": ["bash"],
+                        "host": ["git commit", "git push"],
+                    }
+                }
+            )
+        )
         self.passwd = self.root / "passwd"
         self.passwd.write_text(
             f"tester:x:{os.getuid()}:{os.getgid()}:Test:{self.fake_home}:/bin/bash\n"
@@ -178,8 +188,44 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         path.chmod(0o700)
         return path
 
-    def write_config(self, name, text):
-        (self.config_dir() / name).write_text(text)
+    def write_config(self, name, text, project=None):
+        keys = {
+            "extra-commands": "extra",
+            "network-commands": "network",
+            "host-commands": "host",
+            "package-managers": "package_managers",
+        }
+        key = keys[name]
+        path = self.config_dir() / "config.yml"
+        data = {"global": {}}
+        if path.exists() and not path.is_symlink():
+            loaded = yaml.safe_load(path.read_text()) or {}
+            if isinstance(loaded, dict):
+                data = loaded
+        if not isinstance(data.get("global"), dict):
+            data["global"] = {}
+        items = text.splitlines()
+        if project is None:
+            data["global"][key] = items
+        else:
+            projects = data.get("projects")
+            if not isinstance(projects, list):
+                projects = []
+                data["projects"] = projects
+            block = next(
+                (
+                    item
+                    for item in projects
+                    if isinstance(item, dict) and item.get("path") == project
+                ),
+                None,
+            )
+            if block is None:
+                block = {"path": project}
+                projects.append(block)
+            block[key] = items
+        path.write_text(yaml.safe_dump(data, sort_keys=False))
+        path.chmod(0o600)
 
     def etc_overlay(self, resolv):
         etc = self.root / f"etc-{id(resolv)}"
@@ -347,10 +393,10 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         unknown = self.run_launcher(["--", "true"])
         self.assertIn("unknown config entry: notes", unknown.stderr)
         (config / "notes").unlink()
-        (config / "extra-commands").symlink_to("/etc/hostname")
+        (config / "config.yml").symlink_to("/etc/hostname")
         linked = self.run_launcher(["--", "true"])
-        self.assertIn("refusing symlink in config: extra-commands", linked.stderr)
-        (config / "extra-commands").unlink()
+        self.assertIn("refusing symlink in config: config.yml", linked.stderr)
+        (config / "config.yml").unlink()
         outside = self.root / "elsewhere"
         outside.mkdir()
         config.rmdir()
@@ -358,9 +404,9 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         linked_dir = self.run_launcher(["--", "true"])
         self.assertIn("refusing symlink in config path", linked_dir.stderr)
         config.unlink()
-        self.write_config("host-commands", "pre-commit\n")
+        self.write_config("host-commands", "sudo\n")
         bad_line = self.run_launcher(["--", "true"])
-        self.assertIn("unknown line in host-commands: pre-commit", bad_line.stderr)
+        self.assertIn("unknown line in host-commands: sudo", bad_line.stderr)
         self.assertNotIn("execution=host", bad_line.stderr)
 
     def test_preserves_project_subdirectory(self):
@@ -700,6 +746,106 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
                     self.assertIn("execution=host network=host", completed.stderr)
                     self.assertIn("host-commands=some-tool --check command=", completed.stderr)
 
+    def test_pre_commit_host_grant_is_explicit_and_uses_normal_host_controls(self):
+        self.write_script("pre-commit", 'printf "ARG:%s\\n" "$1"\nenv\n')
+        self.write_config("extra-commands", "pre-commit\n")
+        self.write_config("host-commands", "pre-commit run\n")
+        env = self.env.copy()
+        env["INHERITED_SECRET"] = "must-not-leak"
+        completed = self.run_launcher(
+            ["--", "pre-commit", "run", "--all-files"], env=env
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("ARG:run", completed.stdout)
+        self.assertIn(f"HOME={self.fake_home}", completed.stdout)
+        self.assertNotIn("INHERITED_SECRET=", completed.stdout)
+        self.assertNotIn("SSH_AUTH_SOCK=", completed.stdout)
+        self.assertIn("execution=host network=host", completed.stderr)
+        self.assertIn("host-commands=pre-commit run command=", completed.stderr)
+
+        for argument in ("--version", "runner"):
+            with self.subTest(argument=argument):
+                unmatched = self.run_launcher(["--", "pre-commit", argument])
+                # The sandbox may resolve its installed pre-commit rather than
+                # our host stub; dispatch must not depend on that tool's result.
+                self.assertIn("execution=sandbox network=off", unmatched.stderr)
+        self.write_config("host-commands", "")
+        unlisted = self.run_launcher(["--", "pre-commit", "--version"])
+        self.assertEqual(unlisted.returncode, 0, unlisted.stderr)
+        self.assertIn("execution=sandbox network=off", unlisted.stderr)
+
+        self.write_config("host-commands", "pre-commit\n")
+        broad = self.run_launcher(["--", "pre-commit", "--version"])
+        self.assertEqual(broad.returncode, 0, broad.stderr)
+        self.assertIn("execution=host network=host", broad.stderr)
+        canary = self.run_launcher(["--", "true"])
+        self.assertEqual(canary.returncode, 0, canary.stderr)
+        self.assertIn("execution=sandbox", canary.stderr)
+
+        subprocess.run(
+            ["git", "config", "core.hooksPath", "/tmp/other-hooks"],
+            cwd=self.project, env=self.env, check=True,
+        )
+        refused = self.run_launcher(["--", "pre-commit", "run"])
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertNotIn("execution=host", refused.stderr)
+
+    def test_project_grant_does_not_apply_to_another_project(self):
+        self.write_script("pre-commit", 'printf "ARG:%s\\n" "$1"\n')
+        self.write_config("extra-commands", "pre-commit\n")
+        self.write_config("host-commands", "git commit\n")
+        project = os.path.realpath(self.project)
+        self.write_config("host-commands", "pre-commit run\n", project=project)
+        granted = self.run_launcher(["--", "pre-commit", "run", "--all-files"])
+        self.assertEqual(granted.returncode, 0, granted.stderr)
+        self.assertIn("ARG:run", granted.stdout)
+        self.assertIn("execution=host network=host", granted.stderr)
+        self.assertIn("host-commands=git commit,pre-commit run command=", granted.stderr)
+
+        other = self.root / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True, env=self.env)
+        unmatched = self.run_launcher(["--", "pre-commit", "run"], cwd=other)
+        self.assertIn("execution=sandbox network=off", unmatched.stderr)
+        self.assertIn("host-commands=git commit command=", unmatched.stderr)
+        self.assertNotIn("host-commands=git commit,pre-commit run", unmatched.stderr)
+
+    def test_config_yml_rejects_old_files_and_noncanonical_paths(self):
+        self.write_config("host-commands", "git commit\n")
+        old = self.config_dir() / "extra-commands"
+        old.write_text("rg\n")
+        rejected = self.run_launcher(["--", "true"])
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("unknown config entry: extra-commands", rejected.stderr)
+        self.assertNotIn("execution=", rejected.stderr)
+        old.unlink()
+        alias = self.config_dir() / "config.yaml"
+        alias.write_text("global: {}\n")
+        rejected = self.run_launcher(["--", "true"])
+        self.assertIn("unknown config entry: config.yaml", rejected.stderr)
+        alias.unlink()
+
+        relative = self.config_dir() / "config.yml"
+        relative.write_text("projects:\n  - path: relative\n    host: ['true']\n")
+        relative.chmod(0o600)
+        rejected = self.run_launcher(["--", "true"])
+        self.assertIn("config path is not canonical: relative", rejected.stderr)
+        self.assertNotIn("execution=", rejected.stderr)
+
+        path = os.path.realpath(self.project)
+        duplicate = (
+            "projects:\n"
+            f"  - path: {path}\n"
+            "    host: ['git commit']\n"
+            f"  - path: {path}\n"
+            "    host: ['git push']\n"
+        )
+        relative.write_text(duplicate)
+        relative.chmod(0o600)
+        rejected = self.run_launcher(["--", "true"])
+        self.assertIn(f"duplicate project path: {path}", rejected.stderr)
+        self.assertNotIn("execution=", rejected.stderr)
+
     def test_host_lines_refuse_forbidden_first_tokens_and_malformed_prefixes(self):
         lines = [f"{name} --check" for name in (
             "bwrap", "sudo", "su", "sudoedit", "pkexec", "doas", "unshare",
@@ -709,7 +855,7 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
             "bash", "sh", "dash", "zsh", "fish", "python", "python3",
             "perl", "ruby", "node", "env", "busybox", "timeout", "nohup",
             "stdbuf", "nice", "ionice", "setsid", "script", "ssh", "scp",
-            "sftp", "gpg", "pre-commit",
+            "sftp", "gpg",
         )]
         lines += ["some-tool /tmp/file", "some-tool  --check", " some-tool",
                   "some-tool ", "some-tool\t--check", "some-tool 'two words'",
@@ -746,9 +892,13 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.write_script("some-tool", "echo RAN\n")
         self.write_config("extra-commands", "some-tool\n")
         self.write_config("network-commands", "some-tool --check\n")
+        resolver = self.etc_overlay(("file", "nameserver 127.0.0.1\n"))
         for args, network in ((["--check", "later"], "on"), (["--checker"], "off")):
             with self.subTest(args=args):
-                completed = self.run_launcher(["--", "some-tool", *args])
+                completed = self.run_launcher(
+                    ["--", "some-tool", *args],
+                    extra_bwrap=resolver,
+                )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
                 self.assertIn(f"execution=sandbox network={network}", completed.stderr)
         self.write_config("network-commands", "some-tool --\n")
@@ -1028,8 +1178,8 @@ class BubblewrapLauncherBehaviorTests(unittest.TestCase):
         self.assertEqual(untouched.returncode, 0, untouched.stderr)
         self.assertFalse(missing.exists())
         config = self.config_dir()
-        host_commands = config / "host-commands"
-        host_commands.write_text("git commit\n")
+        host_commands = config / "config.yml"
+        host_commands.write_text("global:\n  host: [git commit]\n")
         host_commands.chmod(0o664)
         marker = self.project / "ran"
         completed = self.run_launcher(["--", "bash", "-c", f"echo RAN > {marker}"])
