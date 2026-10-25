@@ -52,6 +52,84 @@ def _bwrap_works() -> bool:
 BWRAP_WORKS = _bwrap_works()
 
 
+class ResolverPolicyTests(unittest.TestCase):
+    """Exercise the real policy function without requiring nested namespaces."""
+
+    def resolver_allowed(self, path, **metadata):
+        source = SCRIPT.read_text()
+        policy = source.split("resolver_target_allowed() {", 1)[1].split(
+            "\ncopy_network_files() {", 1
+        )[0]
+        script = "resolver_target_allowed() {" + policy
+        script += """
+REAL_HOME=/home/tester
+in_forbidden_bind_dir() { [[ "$1" == /forbidden/* ]]; }
+path_has_symlink_component() { [[ "$1" == "${SYMLINK_PATH:-}" ]]; }
+stat() {
+  case "${@: -1}" in
+    /mnt) printf '%s\\n' "$MNT_STAT" ;;
+    /mnt/wsl) printf '%s\\n' "$WSL_STAT" ;;
+    /mnt/wsl/resolv.conf) printf '%s\\n' "$RESOLVER_STAT" ;;
+    *) return 1 ;;
+  esac
+}
+resolver_target_allowed "$1"
+"""
+        env = os.environ.copy()
+        env.update(
+            MNT_STAT="0:755:2",
+            WSL_STAT="0:1777:2",
+            RESOLVER_STAT="0:644:1",
+        )
+        env.update(metadata)
+        completed = subprocess.run(
+            ["bash", "-c", script, "resolver-policy", path],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        self.assertIn(completed.returncode, (0, 1), completed.stderr)
+        return completed.returncode == 0
+
+    def test_root_owned_wsl_resolver_is_allowed(self):
+        self.assertTrue(self.resolver_allowed("/mnt/wsl/resolv.conf"))
+
+    def test_wsl_exception_does_not_allow_other_paths(self):
+        for path in (
+            "/mnt/wsl/secret",
+            "/mnt/wsl/resolv.conf.backup",
+            "/mnt/other/resolv.conf",
+            "/home/tester/resolv.conf",
+            "/forbidden/resolv.conf",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(self.resolver_allowed(path))
+
+    def test_unsafe_wsl_resolver_metadata_is_rejected(self):
+        for metadata in (
+            {"RESOLVER_STAT": "1000:644:1"},
+            {"RESOLVER_STAT": "0:664:1"},
+            {"RESOLVER_STAT": "0:646:1"},
+            {"RESOLVER_STAT": "0:644:2"},
+            {"RESOLVER_STAT": ""},
+            {"MNT_STAT": "1000:755:2"},
+            {"MNT_STAT": "0:777:2"},
+            {"WSL_STAT": "1000:1777:2"},
+            {"WSL_STAT": "0:777:2"},
+            {"SYMLINK_PATH": "/mnt/wsl/resolv.conf"},
+        ):
+            with self.subTest(metadata=metadata):
+                self.assertFalse(
+                    self.resolver_allowed("/mnt/wsl/resolv.conf", **metadata)
+                )
+
+    def test_existing_system_resolver_locations_remain_allowed(self):
+        self.assertTrue(self.resolver_allowed("/etc/resolv.conf"))
+        self.assertTrue(self.resolver_allowed("/run/systemd/resolve/stub-resolv.conf"))
+
+
 class LauncherFailClosedTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(subprocess.check_output(["mktemp", "-d"], text=True).strip())

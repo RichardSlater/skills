@@ -1177,6 +1177,22 @@ resolver_target_allowed() {
   fi
   case "$canonical" in
     /etc|/etc/*|/run|/run/*) return 0 ;;
+    /mnt/wsl/resolv.conf)
+      # WSL generates this file outside /etc. Copy only its contents; never
+      # expose /mnt/wsl. Sticky directories are safe for a root-owned file.
+      path_has_symlink_component "$canonical" && return 1
+      local path uid mode links
+      for path in /mnt /mnt/wsl "$canonical"; do
+        IFS=: read -r uid mode links < <(stat -c '%u:%a:%h' -- "$path")
+        [[ "$uid" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+        if [[ "$path" == "$canonical" ]]; then
+          [[ "$links" == 1 ]] && (( (8#$mode & 0022) == 0 )) || return 1
+        elif (( (8#$mode & 0022) != 0 && (8#$mode & 01000) == 0 )); then
+          return 1
+        fi
+      done
+      return 0
+      ;;
   esac
   return 1
 }
