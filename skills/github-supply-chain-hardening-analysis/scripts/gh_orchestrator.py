@@ -10,30 +10,35 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import fnmatch
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal
 
-from scorecard_runner import run_scorecard
+import yaml
 from bounded_process import run as run_process
 from safe_files import read_bytes
 from safe_output import atomic_write_text
-import yaml
+from scorecard_runner import run_scorecard
 
 try:
-    from pydantic import BaseModel, ValidationError
     from github import Auth, Github
-    from github.GithubException import BadCredentialsException, GithubException, RateLimitExceededException, UnknownObjectException
+    from github.GithubException import (
+        BadCredentialsException,
+        GithubException,
+        RateLimitExceededException,
+        UnknownObjectException,
+    )
+    from pydantic import BaseModel, ValidationError
 except Exception as exc:  # pragma: no cover - import-time operator guidance
     print(
         "ERROR: missing dependency. Install with: pip install -r requirements.txt",
@@ -246,7 +251,7 @@ def _iso_or_none(value: Any) -> str | None:
     if value is None:
         return None
     if hasattr(value, "astimezone"):
-        return value.astimezone(timezone.utc).isoformat()
+        return value.astimezone(UTC).isoformat()
     return str(value)
 
 
@@ -308,16 +313,16 @@ def discover_repositories(target_type: Literal["organization", "user"], target_n
 
 def _git_askpass_environment(token: str) -> tuple[dict[str, str], Path]:
     """Provide HTTPS credentials to git without placing a token in its URL or argv."""
-    helper = tempfile.NamedTemporaryFile(mode="w", prefix="git-askpass-", delete=False)
-    try:
-        helper.write("#!/bin/sh\ncase \"$1\" in *Username*) printf '%s\\n' x-access-token ;; *) printf '%s\\n' \"${GIT_ASKPASS_TOKEN:?missing token}\" ;; esac\n")
-        helper.close()
-        path = Path(helper.name)
-        path.chmod(0o700)
-    except Exception:
-        helper.close()
-        Path(helper.name).unlink(missing_ok=True)
-        raise
+    with tempfile.NamedTemporaryFile(mode="w", prefix="git-askpass-", delete=False) as helper:
+        try:
+            helper.write("#!/bin/sh\ncase \"$1\" in *Username*) printf '%s\\n' x-access-token ;; *) printf '%s\\n' \"${GIT_ASKPASS_TOKEN:?missing token}\" ;; esac\n")
+            helper.close()
+            path = Path(helper.name)
+            path.chmod(0o700)
+        except Exception:
+            helper.close()
+            Path(helper.name).unlink(missing_ok=True)
+            raise
     # Clone acquisition must not activate ambient hooks/filters or inherit
     # unrelated credentials. In particular, repository-controlled LFS endpoints
     # must never receive the askpass token through a host smudge filter.
@@ -451,7 +456,7 @@ def _analyze_workflow(rel: str, text: str, result: AnalysisResult) -> None:
     try:
         document = yaml.load(text, Loader=yaml.BaseLoader)
         if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
-            raise ValueError("workflow lacks a jobs mapping")
+            raise ValueError("workflow lacks a jobs mapping")  # noqa: TRY004 - invalid document content, not a caller type error
     except (yaml.YAMLError, ValueError):
         _add(result, Finding("github_actions", "medium", rel, "review", "Invalid workflow YAML",
              "Workflow could not be parsed.", "Repair and semantically validate the workflow.",
@@ -771,7 +776,7 @@ def build_proposal(repo: RepoMetadata, analysis: AnalysisResult, scorecard_evide
     return OpenSpecProposal(
         repository_name=repo.name,
         repository_full_name=repo.full_name,
-        generated_at_utc=datetime.now(timezone.utc).isoformat(),
+        generated_at_utc=datetime.now(UTC).isoformat(),
         analysis_version=ANALYSIS_VERSION,
         target_goal="Harden repository supply-chain, secure-SDLC, release integrity, and agentic workflow controls without mutating the repository.",
         estimated_risk=estimated,
@@ -912,7 +917,7 @@ async def process_repository(
         except (ValidationError, ValueError) as exc:
             print(f"Worker failure: {repo.full_name} (proposal validation)", flush=True)
             return RepoProcessResult(repo.full_name, "failed", error=f"proposal validation failure: {exc}", duration_seconds=time.monotonic() - started)
-        except Exception as exc:  # continue with other repositories
+        except Exception as exc:  # noqa: BLE001 - isolate worker failures and continue with other repositories
             safe_error = _sanitize_message(str(exc), token)
             print(f"Worker failure: {repo.full_name}", flush=True)
             return RepoProcessResult(repo.full_name, "failed", error=safe_error, duration_seconds=time.monotonic() - started)

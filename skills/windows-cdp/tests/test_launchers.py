@@ -2,12 +2,11 @@
 
 import base64
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-
+from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 

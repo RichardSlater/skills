@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path, PurePath
 import stat
 import uuid
+from pathlib import Path, PurePath
 
 
 class UnsafePathError(ValueError):

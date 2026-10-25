@@ -5,22 +5,22 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
-from urllib.request import Request, build_opener, HTTPRedirectHandler, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from safe_output import atomic_write_text
+from approval import load_approval, require_approved_path, require_clean_tree
 from privacy import PrivacyError, require_disclosure
 from safe_files import read_bytes
-from approval import load_approval, require_approved_path, require_clean_tree
+from safe_output import atomic_write_text
 from validate_best_practices import load_schema, validate
 
 BASE = "https://www.bestpractices.dev"
@@ -360,7 +360,7 @@ def validate_project_response(
         or not isinstance(data.get("id"), int)
         or not isinstance(data.get("repo_url"), str)
     ):
-        raise ValueError("project response is missing required identity fields")
+        raise ValueError("project response is missing required identity fields")  # noqa: TRY004 - malformed external response, not a caller type error
     normalize_github_repo_url(data["repo_url"])
     if expected_repo_url and normalize_github_repo_url(
         data["repo_url"]

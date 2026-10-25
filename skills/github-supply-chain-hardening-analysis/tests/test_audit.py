@@ -1,14 +1,14 @@
 """Offline regressions for supply-chain audit defects."""
-import json
-import importlib
 import contextlib
+import importlib
 import io
+import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"

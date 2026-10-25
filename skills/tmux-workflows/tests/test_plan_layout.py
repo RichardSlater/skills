@@ -9,10 +9,9 @@ from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from plan_layout import OWNER, PROFILES, Pane, parse_panes, plan_layout  # noqa: E402
+from plan_layout import OWNER, PROFILES, Pane, parse_panes, plan_layout
 
 PANE_FORMAT = (
     "#{pane_id}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t"

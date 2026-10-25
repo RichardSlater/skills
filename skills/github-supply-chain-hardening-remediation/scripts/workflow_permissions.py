@@ -27,7 +27,7 @@ def _load(text: str) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ValueError(f"invalid workflow YAML: {exc}") from exc
     if not isinstance(document, dict) or not isinstance(document.get("jobs"), dict):
-        raise ValueError("workflow must contain a jobs mapping")
+        raise ValueError("workflow must contain a jobs mapping")  # noqa: TRY004 - preserve the invalid-document API
     return document
 
 

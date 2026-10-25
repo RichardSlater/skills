@@ -2,22 +2,25 @@
 """Run a pinned OpenSSF Scorecard artifact under one total deadline."""
 
 from __future__ import annotations
+
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from safe_output import atomic_write_text
-from privacy import PrivacyError, require_disclosure
-from bounded_process import run as run_process, run_container
-from analyze_best_practices import validate_output_destination
 import hashlib
+
+from analyze_best_practices import validate_output_destination
+from bounded_process import run as run_process
+from bounded_process import run_container
+from privacy import PrivacyError, require_disclosure
+from safe_output import atomic_write_text
 
 # Deliberately reviewed immutable artifact. Update only with reviewed provenance.
 SCORECARD_ARTIFACT = {

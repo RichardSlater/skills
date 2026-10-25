@@ -19,12 +19,12 @@ Use the Windows-native [`chrome-devtools.exe`](https://github.com/aeroxy/chrome-
 
 ## Architecture and non-negotiable rules
 
-| Component | Where it runs | Address / role |
-| --- | --- | --- |
-| Agent and Vite dev server | WSL2, NAT mode | Usually `127.0.0.1:5173` inside WSL |
-| `chrome-devtools.exe` | Native Windows process launched through WSL interop | Connects to **Windows** `127.0.0.1:9222` |
-| Google Chrome | Windows host | CDP bound to Windows loopback only |
-| `scripts/windows-cdp` | WSL2 Bash | Resolves the Windows executable and invokes it with `--port` |
+| Component                 | Where it runs                                       | Address / role                                               |
+| ------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+| Agent and Vite dev server | WSL2, NAT mode                                      | Usually `127.0.0.1:5173` inside WSL                          |
+| `chrome-devtools.exe`     | Native Windows process launched through WSL interop | Connects to **Windows** `127.0.0.1:9222`                     |
+| Google Chrome             | Windows host                                        | CDP bound to Windows loopback only                           |
+| `scripts/windows-cdp`     | WSL2 Bash                                           | Resolves the Windows executable and invokes it with `--port` |
 
 Windows can normally access WSL development servers using WSL's localhost-forwarding behaviour, so Chrome can open `http://127.0.0.1:5173`. The reverse direction is not symmetric in default WSL2 NAT mode: Linux `curl http://127.0.0.1:9222` is not a test of Windows CDP connectivity. Windows `curl.exe` or `chrome-devtools.exe` is.
 
@@ -183,20 +183,20 @@ Replace `<WindowsUser>` with the real Windows profile directory. Avoid Linux-onl
 
 ## 5. Troubleshooting and safeguards
 
-| Symptom                                      | What to check                                                                                                                                    |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Launcher cannot locate CLI                   | Confirm Windows Cargo installation; run `Get-Command chrome-devtools.exe` and check `%USERPROFILE%\.cargo\bin`; set `WINDOWS_CDP_EXE` if needed. |
-| `powershell.exe` or `/mnt/c` unavailable     | WSL interop/mount may be restricted by the sandbox. Request authorization; do not silently bypass it.                                            |
-| Unrecognized port owner / profile mismatch | The helper fails closed, including if Windows reports a child process as the socket owner. Collect the exact error for diagnosis; do not weaken ownership checks. |
-| Another launcher is active | Wait for that launch to finish, then retry. The persistent `launcher.lock` file is harmless; do not delete it while a launcher is running. |
-| CDP connection refused                       | Check Chrome's dedicated profile, the exact port, and Windows `curl.exe .../json/version`. Do not modify firewall rules.                         |
-| Windows Chrome cannot open WSL Vite URL      | Check Vite is running and Windows-to-WSL localhost forwarding works. This is separate from CDP.                                                  |
-| Command hangs or asks for access             | Check whether Chrome is displaying a remote-debugging permission prompt. Seek user approval, do not retry indefinitely.                          |
-| Wrong tab manipulated                        | Run `list-pages`, capture the target name and pass `--target` with **every** page-level command.                                                 |
-| React field fails to update                  | Prefer click + `press-key` + `type-text` instead of `fill`.                                                                                      |
-| Screenshot not found                         | Use `wslpath -w` for a Windows-accessible output path; inspect the CLI's exit status.                                                            |
-| Console/network unexpectedly empty           | These commands drain buffers. Reproduce the action and collect again.                                                                            |
-| Browser restart invalidates a daemon session | Re-run discovery/connection. The daemon normally times out after inactivity; on Windows `kill-daemon` is not supported, so do not rely on it.    |
+| Symptom                                      | What to check                                                                                                                                                     |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Launcher cannot locate CLI                   | Confirm Windows Cargo installation; run `Get-Command chrome-devtools.exe` and check `%USERPROFILE%\.cargo\bin`; set `WINDOWS_CDP_EXE` if needed.                  |
+| `powershell.exe` or `/mnt/c` unavailable     | WSL interop/mount may be restricted by the sandbox. Request authorization; do not silently bypass it.                                                             |
+| Unrecognized port owner / profile mismatch   | The helper fails closed, including if Windows reports a child process as the socket owner. Collect the exact error for diagnosis; do not weaken ownership checks. |
+| Another launcher is active                   | Wait for that launch to finish, then retry. The persistent `launcher.lock` file is harmless; do not delete it while a launcher is running.                        |
+| CDP connection refused                       | Check Chrome's dedicated profile, the exact port, and Windows `curl.exe .../json/version`. Do not modify firewall rules.                                          |
+| Windows Chrome cannot open WSL Vite URL      | Check Vite is running and Windows-to-WSL localhost forwarding works. This is separate from CDP.                                                                   |
+| Command hangs or asks for access             | Check whether Chrome is displaying a remote-debugging permission prompt. Seek user approval, do not retry indefinitely.                                           |
+| Wrong tab manipulated                        | Run `list-pages`, capture the target name and pass `--target` with **every** page-level command.                                                                  |
+| React field fails to update                  | Prefer click + `press-key` + `type-text` instead of `fill`.                                                                                                       |
+| Screenshot not found                         | Use `wslpath -w` for a Windows-accessible output path; inspect the CLI's exit status.                                                                             |
+| Console/network unexpectedly empty           | These commands drain buffers. Reproduce the action and collect again.                                                                                             |
+| Browser restart invalidates a daemon session | Re-run discovery/connection. The daemon normally times out after inactivity; on Windows `kill-daemon` is not supported, so do not rely on it.                     |
 
 ## 6. Close the debugging session
 

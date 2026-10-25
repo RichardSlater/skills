@@ -304,7 +304,7 @@ Run:
 Create `$ASSESSMENT_DIR/evidence.md` with one row per considered criterion:
 
 | Criterion | Current answer | Proposed answer | Confidence | Evidence | Change required |
-|---|---|---|---|---|---|
+| --------- | -------------- | --------------- | ---------- | -------- | --------------- |
 
 Classify findings as:
 

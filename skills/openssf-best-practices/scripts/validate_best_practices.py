@@ -5,16 +5,16 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
-from pathlib import Path
 import re
-import sys
 import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from safe_output import atomic_write_text
 from safe_files import read_bytes
+from safe_output import atomic_write_text
 
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "references" / "schema" / "badgeapp-424f55a.json"
 NON_CRITERION_FIELDS = {"name", "description", "license", "implementation_languages"}

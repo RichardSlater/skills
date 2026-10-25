@@ -142,17 +142,17 @@ ClusterFuzzLite is the lightweight option that integrates directly with GitHub A
 
 ## Risk Assessment Summary
 
-| Control | Scorecard Impact | Real Security Impact | Decision |
-|---------|:---------------:|:-------------------:|----------|
-| Code Review | 0 → 10 | Low (single maintainer) | Accept lower score |
-| Contributors | 3 → 10 | None (organizational) | Accept lower score |
-| Maintained | 0 → 10 | Moderate (project age) | Accept lower score (resolves automatically) |
-| Packaging | ? → 10 | None (direct GitHub install) | Accept lower score |
-| Provenance Attestations | +high | High (supply chain) | **Implement** |
-| Required CodeQL | 9 → 10 | Moderate (missed scans) | **Implement** |
-| Fuzzing | 0 → 10 | Moderate (input parsing) | **Implement** |
-| Silver Badge | 5 → 7 | Moderate (operational rigor) | **Pursue** |
-| Stricter Branch Protection | 8 → 10 | Moderate (bypass prevention) | **Implement** |
+| Control                    | Scorecard Impact | Real Security Impact         | Decision                                    |
+| -------------------------- | :--------------: | :--------------------------: | ------------------------------------------- |
+| Code Review                | 0 → 10           | Low (single maintainer)      | Accept lower score                          |
+| Contributors               | 3 → 10           | None (organizational)        | Accept lower score                          |
+| Maintained                 | 0 → 10           | Moderate (project age)       | Accept lower score (resolves automatically) |
+| Packaging                  | ? → 10           | None (direct GitHub install) | Accept lower score                          |
+| Provenance Attestations    | +high            | High (supply chain)          | **Implement**                               |
+| Required CodeQL            | 9 → 10           | Moderate (missed scans)      | **Implement**                               |
+| Fuzzing                    | 0 → 10           | Moderate (input parsing)     | **Implement**                               |
+| Silver Badge               | 5 → 7            | Moderate (operational rigor) | **Pursue**                                  |
+| Stricter Branch Protection | 8 → 10           | Moderate (bypass prevention) | **Implement**                               |
 
 ---
 

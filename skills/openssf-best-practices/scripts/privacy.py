@@ -1,9 +1,10 @@
 """Consent gates for external disclosure of private repository identity."""
 from __future__ import annotations
-from typing import Any
+
 import json
-from pathlib import Path
 import re
+from pathlib import Path
+from typing import Any
 
 
 class PrivacyError(ValueError):
