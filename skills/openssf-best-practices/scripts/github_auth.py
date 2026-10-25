@@ -6,8 +6,9 @@ import argparse
 import json
 import re
 import subprocess
-from typing import Any
 from pathlib import Path
+from typing import Any
+
 from privacy import require_disclosure
 
 ACCOUNT_RE = re.compile(r"^\s*[✓X!]\s+Logged in to \S+ account (?P<login>\S+)")

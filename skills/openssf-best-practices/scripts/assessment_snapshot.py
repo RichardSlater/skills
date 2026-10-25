@@ -6,9 +6,9 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import stat
 import subprocess
+from pathlib import Path
 
 from safe_files import read_bytes
 from safe_output import atomic_write_text

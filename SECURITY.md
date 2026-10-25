@@ -39,12 +39,12 @@ Security-sensitive issues include, but are not limited to:
 
 The maintainer commits to the following response time targets for privately reported vulnerabilities:
 
-| Severity | Initial Response    | Resolution Target       |
-|----------|---------------------|-------------------------|
-| Critical | Within 24 hours     | Fix and advisory within 48 hours |
-| High     | Within 48 hours     | Fix and advisory within 7 days |
-| Medium   | Within 5 days       | Fix and advisory within 30 days |
-| Low      | Within 10 days      | Fix and advisory within 60 days   |
+| Severity | Initial Response | Resolution Target                |
+| -------- | ---------------- | -------------------------------- |
+| Critical | Within 24 hours  | Fix and advisory within 48 hours |
+| High     | Within 48 hours  | Fix and advisory within 7 days   |
+| Medium   | Within 5 days    | Fix and advisory within 30 days  |
+| Low      | Within 10 days   | Fix and advisory within 60 days  |
 
 *Initial Response* means acknowledging receipt, confirming the security advisory was received, and requesting any additional information needed to reproduce the issue.
 

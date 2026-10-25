@@ -95,7 +95,7 @@ def main() -> None:
         die("config.yml must be a mapping")
     unknown = set(data) - {"global", "projects"}
     if unknown:
-        die(f"unknown config key: {sorted(unknown)[0]}")
+        die(f"unknown config key: {min(unknown)}")
     global_section = data.get("global")
     if global_section is None:
         global_section = {}
@@ -103,7 +103,7 @@ def main() -> None:
         die("config global must be a mapping")
     unknown = set(global_section) - set(GRANT_KEYS)
     if unknown:
-        die(f"unknown config key: {sorted(unknown)[0]}")
+        die(f"unknown config key: {min(unknown)}")
     projects = data.get("projects")
     if projects is None:
         projects = []
@@ -116,7 +116,7 @@ def main() -> None:
             die("config project entry must be a mapping")
         unknown = set(entry) - {"path", *GRANT_KEYS}
         if unknown:
-            die(f"unknown config key: {sorted(unknown)[0]}")
+            die(f"unknown config key: {min(unknown)}")
         if "path" not in entry:
             die("config project entry missing path")
         path = canonical_path(entry["path"])

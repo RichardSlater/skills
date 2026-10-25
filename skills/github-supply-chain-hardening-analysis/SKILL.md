@@ -211,23 +211,23 @@ The analysis must treat OpenSSF Scorecard as a primary evidence source, not just
 3. Record the overall score and a summary of each check result, paying special attention to the lowest-scoring checks. The proposal's `derived_risk_rating` is a local prioritization band derived from the numeric score, not a risk label emitted by Scorecard.
 4. Map failing or low-scoring Scorecard checks to concrete remediations:
 
-   | Scorecard check | Typical remediation |
-   |-----------------|---------------------|
-   | Branch-Protection | Ruleset or branch protection requiring PRs, reviews, status checks, creation/deletion restrictions, and force-push restrictions. |
-   | Code-Review | Required approving reviews, CODEOWNERS review for sensitive paths, dismiss stale approvals. |
-   | Dependency-Update-Tool | Dependabot or Renovate version update configuration. |
-   | Signed-Releases | Release signing, SLSA provenance, or artifact attestations. |
-   | Token-Permissions | Least-privilege `GITHUB_TOKEN` permissions at workflow and job level. |
-   | Dangerous-Workflow | Remove unsafe `pull_request_target`, script-injection patterns, and untrusted checkout usage. |
-   | Pinned-Dependencies | Pin GitHub Actions, container images, and package/tool references to immutable commit SHAs or hashes. |
-   | SAST | Add CodeQL or equivalent static analysis workflow. |
-   | Vulnerabilities | Triage open OSV/GitHub Advisory Database findings; update or remove vulnerable dependencies. |
-   | Security-Policy | Add or improve `SECURITY.md`. |
-   | Fuzzing | Recommend OSS-Fuzz, ClusterFuzzLite, or language-native fuzzing where applicable. |
-   | CI-Tests | Ensure required CI test status checks block merge. |
-   | Binary-Artifacts | Remove or justify committed executable/compiled artifacts. |
-   | Webhooks | Review webhook secrets and least-privilege event scopes. |
-   | License | Verify an OSI-approved license is declared. |
+   | Scorecard check        | Typical remediation                                                                                                              |
+   | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+   | Branch-Protection      | Ruleset or branch protection requiring PRs, reviews, status checks, creation/deletion restrictions, and force-push restrictions. |
+   | Code-Review            | Required approving reviews, CODEOWNERS review for sensitive paths, dismiss stale approvals.                                      |
+   | Dependency-Update-Tool | Dependabot or Renovate version update configuration.                                                                             |
+   | Signed-Releases        | Release signing, SLSA provenance, or artifact attestations.                                                                      |
+   | Token-Permissions      | Least-privilege `GITHUB_TOKEN` permissions at workflow and job level.                                                            |
+   | Dangerous-Workflow     | Remove unsafe `pull_request_target`, script-injection patterns, and untrusted checkout usage.                                    |
+   | Pinned-Dependencies    | Pin GitHub Actions, container images, and package/tool references to immutable commit SHAs or hashes.                            |
+   | SAST                   | Add CodeQL or equivalent static analysis workflow.                                                                               |
+   | Vulnerabilities        | Triage open OSV/GitHub Advisory Database findings; update or remove vulnerable dependencies.                                     |
+   | Security-Policy        | Add or improve `SECURITY.md`.                                                                                                    |
+   | Fuzzing                | Recommend OSS-Fuzz, ClusterFuzzLite, or language-native fuzzing where applicable.                                                |
+   | CI-Tests               | Ensure required CI test status checks block merge.                                                                               |
+   | Binary-Artifacts       | Remove or justify committed executable/compiled artifacts.                                                                       |
+   | Webhooks               | Review webhook secrets and least-privilege event scopes.                                                                         |
+   | License                | Verify an OSI-approved license is declared.                                                                                      |
 
    In addition to direct remediations, map Scorecard findings to the broader OpenSSF ecosystem:
    - **Branch-Protection / Code-Review / Token-Permissions** controls are good candidates for enforcement with **OpenSSF Allstar**.

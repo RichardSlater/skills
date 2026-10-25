@@ -33,7 +33,7 @@ class Pane:
         fields = line.rstrip("\n").split("\t")
         if len(fields) != 9:
             raise ValueError(f"expected 9 tab-separated fields, got {len(fields)}")
-        pane_id, left, top, width, height, window_width, window_height, owner, role = (
+        pane_id, _left, _top, _width, _height, _window_width, _window_height, owner, role = (
             fields
         )
         if re.fullmatch(r"%[0-9]+", pane_id) is None:
