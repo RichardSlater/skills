@@ -35,15 +35,31 @@ reject_caller_config() {
   esac
 }
 
+resolve_awk() {
+  local candidate
+  if candidate="$(command -v awk 2>/dev/null)"; then
+    AWK="$candidate"
+    return 0
+  fi
+  for candidate in /usr/bin/awk /bin/awk; do
+    if [[ -x "$candidate" ]]; then
+      AWK="$candidate"
+      return 0
+    fi
+  done
+  die "awk is required to parse user database entries" 69
+}
+
 resolve_real_home() {
   local uid line home
+  resolve_awk
   uid="$(/usr/bin/id -u)"
   line="$(/usr/bin/getent passwd "$uid")" || die "cannot resolve invoking user from the user database"
-  home="$(printf '%s\n' "$line" | /usr/bin/awk -F: 'NR==1 { print $6 }')"
+  home="$(printf '%s\n' "$line" | "$AWK" -F: 'NR==1 { print $6 }')"
   [[ -n "$home" && "$home" == /* ]] || die "cannot resolve invoking user home from the user database"
   [[ ! -L "$home" && -d "$home" ]] || die "invoking user home must be a real directory"
   REAL_HOME="$(canonical_dir "$home")"
-  REAL_USER="$(printf '%s\n' "$line" | /usr/bin/awk -F: 'NR==1 { print $1 }')"
+  REAL_USER="$(printf '%s\n' "$line" | "$AWK" -F: 'NR==1 { print $1 }')"
   [[ -n "$REAL_USER" && "$REAL_USER" != *$'\n'* ]] || die "cannot resolve invoking user name from the user database"
   CONFIG_DIR="$REAL_HOME/.config/bubblewrap-isolation"
 }
@@ -622,7 +638,7 @@ elf_closure_ok() {
   while IFS= read -r raw; do
     [[ -n "$raw" ]] || continue
     rpath_tokens_ok "$raw" || return 1
-  done < <(printf '%s\n' "$report" | /usr/bin/awk '/\(RPATH\)|\(RUNPATH\)/ { print $NF }')
+  done < <(printf '%s\n' "$report" | "$AWK" '/\(RPATH\)|\(RUNPATH\)/ { print $NF }')
   for candidate in /sbin/ldconfig /usr/sbin/ldconfig; do
     if [[ -x "$candidate" ]] && under_base_prefix "$(readlink -f -- "$candidate")"; then
       ldconfig="$candidate"
@@ -632,10 +648,10 @@ elf_closure_ok() {
   while IFS= read -r soname; do
     [[ -n "$soname" ]] || continue
     [[ -n "$ldconfig" ]] || return 1
-    resolved="$("$ldconfig" -p 2>/dev/null | /usr/bin/awk -v soname="$soname" '$1 == soname { print $NF; exit }')"
+    resolved="$("$ldconfig" -p 2>/dev/null | "$AWK" -v soname="$soname" '$1 == soname { print $NF; exit }')"
     [[ -n "$resolved" ]] || return 1
     in_base_mounts "$resolved" || return 1
-  done < <(printf '%s\n' "$report" | /usr/bin/awk '/\(NEEDED\)/ { gsub(/[\[\]]/, "", $NF); print $NF }')
+  done < <(printf '%s\n' "$report" | "$AWK" '/\(NEEDED\)/ { gsub(/[\[\]]/, "", $NF); print $NF }')
   return 0
 }
 
