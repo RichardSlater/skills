@@ -20,6 +20,7 @@ This repository provides GitHub supply-chain hardening workflows and an OpenSSF 
 | [`malicious-intent-analysis`](skills/malicious-intent-analysis/SKILL.md) | Reviews unfamiliar or suspicious artifacts with separate impact, confidence and intent assessments. | No target changes or execution; reports outside the target. |
 | [`opsx-handoff`](skills/opsx-handoff/SKILL.md) | Saves in-flight OpenSpec context for a later session. | Writes only the selected change's `HANDOFF.md`. |
 | [`opsx-rightsize`](skills/opsx-rightsize/SKILL.md) | Challenges oversized OpenSpec plans against the original goal and preserves strict validation. | Edits only selected change artifacts after approval; no application code changes. |
+| [`opsx-supervised`](skills/opsx-supervised/SKILL.md) | Supervises subagents implementing and reviewing an OpenSpec change, with bounded resource use and task-level acceptance. | Yes; implements the selected change locally. Publication and user decisions are not delegated. |
 | [`pre-commit`](skills/pre-commit/SKILL.md) | Verifies repository-specific hooks and signing before approved publication. | Hooks may modify files; commits/pushes require approval. |
 
 ## Repository layout
@@ -60,6 +61,8 @@ skills/
   opsx-handoff/
     SKILL.md
   opsx-rightsize/
+    SKILL.md
+  opsx-supervised/
     SKILL.md
   pre-commit/
     SKILL.md
@@ -107,6 +110,10 @@ Generated proposals are written under the analysis skill's configured output dir
 ### Right-size an OpenSpec change
 
 Invoke `/opsx-rightsize <change>` when an OpenSpec change has many tasks or proposes significantly more work than the original request. It asks whether the goal can be achieved with minimal code changes, proposes concrete scope reductions, and updates artifacts only after approval. Strict OpenSpec validation runs before and after edits; required behavior and safeguards must remain covered. If no safe simplification exists, the change stays untouched.
+
+### Implement an OpenSpec change with supervision
+
+Invoke `/opsx-supervised <change>` to implement or continue an OpenSpec change using Pi's `pi-subagents` extension and configured worker and reviewer roles. The supervisor checks configuration and resource capacity, delegates bounded work, integrates and validates changes, and requires independent review before marking tasks complete. Parallel writers use separate worktrees when a clean checkout permits; otherwise work proceeds with one writer. It pauses affected work when safe progress requires a user decision and does not delegate publication.
 
 ## Security model
 

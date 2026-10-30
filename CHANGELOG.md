@@ -8,6 +8,7 @@ Security fixes are called out explicitly and include the affected behavior and r
 
 ### Added
 
+- `opsx-supervised` for supervised OpenSpec implementation with bounded subagent resources, independent review, and task-level acceptance.
 - CNCF-inspired single-maintainer governance and a security-focused roadmap.
 - GitVersion-based SemVer release packaging for protected `v{major}.{minor}.{patch}` tags, with a trusted `main` workflow and environment-gated publishing.
 - CodeQL analysis for GitHub Actions and Python.
