@@ -37,7 +37,7 @@ jobs:
       - name: Set up GitVersion
         uses: gittools/actions/gitversion/setup@389fe43e6b0189b98c40c43553070ac029304635 # v5.0.0
         with:
-          versionSpec: 6.3.x
+          versionSpec: 7.0.x
 
       - name: Calculate version
         id: gitversion
@@ -46,7 +46,7 @@ jobs:
       - name: Validate plan and release signal
         id: plan
         env:
-          GITVERSION_SEMVER: ${{ steps.gitversion.outputs.MajorMinorPatch }}
+          GITVERSION_SEMVER: ${{ steps.gitversion.outputs.majorMinorPatch }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
